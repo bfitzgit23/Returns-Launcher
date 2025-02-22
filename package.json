@@ -1,13 +1,11 @@
 {
   "name": "swglauncher",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "build-win": "electron-builder --win",
-    "build-linux": "electron-builder --linux --x64",
-    "build-mac": "electron-builder --mac --x64"
+    "build:win": "electron-builder --win"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +13,7 @@
   "description": "SWG Hunted Game Launcher",
   "dependencies": {
     "axios": "^1.7.9",
+    "electron-updater": "^6.3.9",
     "fs-extra": "^11.3.0"
   },
   "devDependencies": {
@@ -28,7 +27,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -38,6 +39,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bfitzgit23",
+        "repo": "https://github.com/bfitzgit23/SWG-Hunted-Launcher"
+      }
+    ]
   }
 }
