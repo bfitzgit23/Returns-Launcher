@@ -1,42 +1,53 @@
-{
-  "name": "swglauncher",
-  "version": "1.0.4",
+    {
+  "name": "SWG-Hunted-launcher",
+  "version": "1.0.0",
+  "description": "SWG-Hunted-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win"
+    "build-win": "electron-builder --win --ia32 -p never",
+    "deploy-win": "electron-builder --win --ia32 -p always",
+    "build-linux": "electron-builder --linux --x64",
+    "build-mac": "electron-builder --mac --x64"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "SWG Hunted Game Launcher",
+  "repository": "https://github.com/bfitzgit23/SWG-Hunted-Launcher",
+  "homepage": "https://force-alliance.online",
+  "keywords": [
+    "hunted",
+    "launcher",
+    "installer",
+    "swg",
+    "star",
+    "wars",
+    "galaxies",
+    "emulator",
+    "emu",
+    "swgemu"
+  ],
+  "author": "Force_Alliance",
+  "license": "CC0-1.0",
+  "devDependencies": {
+    "electron": "^25.2.0",
+    "electron-builder": "^25.1.8"
+  },
   "dependencies": {
     "@electron/remote": "^2.0.9",
     "adm-zip": "^0.5.10",
-    "axios": "^1.7.9",
     "electron-is-dev": "^2.0.0",
     "electron-log": "^4.4.8",
     "electron-updater": "^6.3.9",
     "follow-redirects": "^1.15.2",
-    "fs-extra": "^11.3.0",
     "random-access-file": "^1.8.1",
     "request": "^2.88.2"
   },
-  "devDependencies": {
-    "electron": "^34.0.0",
-    "electron-builder": "^25.1.8"
-  },
-  "build": {
+ "build": {
     "appId": "com.swghunted.launcher",
     "productName": "SWG Hunted Launcher",
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "icon": "build/icon.ico"
@@ -46,13 +57,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "bfitzgit23",
-        "repo": "https://github.com/bfitzgit23/SWG-Hunted-Launcher"
-      }
-    ]
+   }
   }
 }
