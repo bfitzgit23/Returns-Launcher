@@ -50,15 +50,33 @@ function createWindow() {
 }
 
 // File system operations
-ipcMain.handle('check-files', async (event, requiredFiles) => {
+ipcMain.handle('check-files', async (event, server) => {
   const missingFiles = [];
-  for (const file of requiredFiles) {
-    const exists = await fs.pathExists(file);
+  const invalidFiles = [];
+
+  for (const filePath in server.files) {
+    const expectedMd5 = server.files[filePath];
+    const exists = await fs.pathExists(filePath);
+
     if (!exists) {
-      missingFiles.push(file);
+      missingFiles.push(filePath);
+    } else {
+      const fileHash = await new Promise((resolve, reject) => {
+        const hash = crypto.createHash('md5');
+        const stream = fs.createReadStream(filePath);
+
+        stream.on('data', data => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+      });
+
+      if (fileHash !== expectedMd5) {
+        invalidFiles.push(filePath);
+      }
     }
   }
-  return missingFiles;
+
+  return { missingFiles, invalidFiles };
 });
 
 // Load the required files list
