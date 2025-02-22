@@ -94,28 +94,28 @@ async function checkFiles() {
     document.getElementById('file-progress').style.width = '0%';
     document.getElementById('total-progress').style.width = '0%';
 
-    const requiredFiles = await ipcRenderer.invoke('load-required-files');
+    const server = await ipcRenderer.invoke('load-required-files');
+    const requiredFiles = Object.keys(server.files);
     let completedFiles = 0;
 
     document.getElementById('total-status').textContent = `0/${requiredFiles.length} files`;
 
-    for (const fileInfo of requiredFiles) {
-      const filePath = path.join(selectedDirectory, fileInfo.name);
+    for (const filePath of requiredFiles) {
+      const expectedMd5 = server.files[filePath];
+      const fullPath = path.join(selectedDirectory, filePath);
 
       try {
-        const stats = await fs.stat(filePath);
-        if (fileInfo.size === 0 && fileInfo.md5 === "") {
-          document.getElementById('status').textContent = `Skipping check for ${fileInfo.name}`;
-        } else if (stats.size !== fileInfo.size) {
-          await downloadFile(fileInfo, filePath);
+        const exists = await fs.access(fullPath).then(() => true).catch(() => false);
+        if (!exists) {
+          await downloadFile({ url: server.urls[filePath], name: filePath, md5: expectedMd5 }, fullPath);
         } else {
-          const fileMd5 = await ipcRenderer.invoke('check-md5', filePath);
-          if (fileMd5 !== fileInfo.md5) {
-            await downloadFile(fileInfo, filePath);
+          const fileMd5 = await ipcRenderer.invoke('check-md5', fullPath);
+          if (fileMd5 !== expectedMd5) {
+            await downloadFile({ url: server.urls[filePath], name: filePath, md5: expectedMd5 }, fullPath);
           }
         }
       } catch (error) {
-        await downloadFile(fileInfo, filePath);
+        await downloadFile({ url: server.urls[filePath], name: filePath, md5: expectedMd5 }, fullPath);
       }
 
       completedFiles++;
@@ -151,13 +151,11 @@ async function downloadFile(fileInfo, destination) {
   document.getElementById('file-progress').style.width = '0%';
 
   try {
-    // Skip MD5 check if size is 0 and MD5 is empty
-    const skipChecks = fileInfo.size === 0 && fileInfo.md5 === "";
     const result = await ipcRenderer.invoke('download-file', {
       url: fileInfo.url,
       destination: destination,
       expectedMd5: fileInfo.md5,
-      skipChecks: skipChecks
+      skipChecks: false
     });
 
     if (result === 'kept-with-mismatch') {
