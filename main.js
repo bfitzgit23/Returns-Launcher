@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-const { autoUpdater } = require('electron-updater'); // Added electron-updater
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const log = require('electron-log');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
+const url = require('url');
 const fs = require('fs-extra');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
