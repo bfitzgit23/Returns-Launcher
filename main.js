@@ -63,7 +63,7 @@ ipcMain.handle('check-files', async (event, requiredFiles) => {
 
 // Load the required files list
 ipcMain.handle('load-required-files', async () => {
-  const data = fs.readFileSync(path.join(__dirname, 'requiredtres.json'), 'utf8');
+  const data = fs.readFileSync(path.join(__dirname, 'server.json'), 'utf8');
   return JSON.parse(data);
 });
 
