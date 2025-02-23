@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs-extra');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const https = require('https');
