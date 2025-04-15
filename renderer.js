@@ -49,6 +49,8 @@ async function selectInstallLocation() {
             await ipcRenderer.invoke('save-install-dir', result);
             updateReadyStatus();
             updateDirectoryDisplay();
+            await updateConfig(); // Automatically update config when directory is selected
+            await checkFiles(); // Automatically check and download files
         }
     } catch (error) {
         document.getElementById('status').textContent = `Error selecting directory: ${error.message}`;
@@ -186,19 +188,7 @@ async function updateConfig() {
     }
 
     try {
-        // Get input elements and ensure they exist
-        const ipInput = document.getElementById('serverIp');
-        const portInput = document.getElementById('serverPort');
-
-        if (!ipInput || !portInput) {
-            throw new Error('Server configuration inputs not found');
-        }
-
-        // Get values with fallbacks
-        const ip = ipInput.value?.trim() || '192.168.50.156';
-        const port = portInput.value?.trim() || '44453';
-
-        const config = `[ClientGame]\nloginServerAddress0=${ip}\nloginServerPort0=${port}`;
+        const config = `[ClientGame]\nloginServerAddress0=154.12.225.58\nloginServerPort0=44453`;
         
         await ipcRenderer.invoke('update-config', {
             directory: selectedDirectory,

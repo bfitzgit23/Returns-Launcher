@@ -363,7 +363,6 @@
         <div class="side-buttons">
             <button class="side-button" onclick="checkFiles()">Full Scan</button>
             <button class="side-button" onclick="launchSettings()">Settings</button>
-            <button class="side-button" onclick="toggleConfig()">Server Config</button>
             <div class="install-location-container">
                 <button class="side-button" onclick="selectInstallLocation()">Install Location</button>
                 <div id="current-directory" class="install-path"></div>
@@ -380,12 +379,6 @@
             </div>
             <div id="download-speed" class="status-text"></div>
             <div id="status" class="status-text">Ready to play</div>
-        </div>
-
-        <div id="config-panel" class="config-panel">
-            <input type="text" id="serverIp" placeholder="Server IP">
-            <input type="number" id="serverPort" placeholder="Port">
-            <button class="side-button" onclick="updateConfig()">Update</button>
         </div>
     </div>
 

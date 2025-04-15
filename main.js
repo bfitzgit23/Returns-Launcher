@@ -81,9 +81,35 @@ ipcMain.handle('check-md5', async (event, filePath) => {
     });
 });
 
-// Download a file
+// Add this function to preserve player profiles
+async function preservePlayerProfiles(directory) {
+    const profilesPath = path.join(directory, 'profiles');
+    const backupPath = path.join(directory, 'profiles_backup');
+    
+    try {
+        if (await fs.pathExists(profilesPath)) {
+            // If backup exists, restore it first
+            if (await fs.pathExists(backupPath)) {
+                await fs.remove(profilesPath);
+                await fs.move(backupPath, profilesPath);
+            }
+        }
+    } catch (error) {
+        console.error('Error preserving player profiles:', error);
+    }
+}
+
+// Modify the download-file handler to preserve profiles
 ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, skipChecks }) => {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+        // Check if this is a tre file download
+        const isTreFile = destination.toLowerCase().endsWith('.tre');
+        const gameDir = path.dirname(destination);
+        
+        if (isTreFile) {
+            await preservePlayerProfiles(gameDir);
+        }
+        
         fs.mkdirSync(path.dirname(destination), { recursive: true });
         
         function downloadWithRedirects(url) {
