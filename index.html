@@ -1,40 +1,387 @@
-
 <!DOCTYPE html>
 <html>
 <head>
-  <title>SWG: Hunted Launcher</title>
+    <title></title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-app-region: drag;
+            user-select: none;
+            max-width: 100%;
+            overflow: hidden;
+            height: 100vh;
+            box-sizing: border-box;
+            border-radius: 12px;
+            position: relative;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin: 0 0 15px 0;
+            color: #4CAF50;
+            text-align: center;
+            font-size: 24px;
+        }
+
+        .play-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, rgba(0, 0, 0, 0.8), rgba(51, 51, 51, 0.8));
+            border: 4px solid rgba(102, 102, 102, 0.5);
+            position: absolute;
+            left: 50px;
+            top: 35%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+            -webkit-app-region: no-drag;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5),
+                        inset 0 0 15px rgba(255,255,255,0.1);
+            backdrop-filter: blur(5px);
+            z-index: 2;
+        }
+
+        .play-button:hover {
+            border-color: #4CAF50;
+            background: linear-gradient(45deg, rgba(0, 0, 0, 0.9), rgba(51, 51, 51, 0.9));
+            box-shadow: 0 0 30px rgba(76, 175, 80, 0.5),
+                        inset 0 0 20px rgba(76, 175, 80, 0.3);
+            transform: translateY(-50%) scale(1.05);
+        }
+
+        .side-buttons {
+            position: absolute;
+            right: 30px;
+            top: 35%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 2;
+        }
+
+        .side-button {
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.9));
+            border: 1px solid rgba(102, 102, 102, 0.5);
+            color: #FFD700;  /* Star Wars yellow */
+            padding: 12px 24px;
+            width: 180px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            -webkit-app-region: no-drag;
+            border-radius: 8px;
+            text-transform: uppercase;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px;
+            letter-spacing: 2px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .side-button:hover {
+            border-color: #4CAF50;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 1));
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
+            transform: translateX(-5px);
+            color: #4CAF50;
+            text-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+        }
+
+        .side-button::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg,
+                transparent,
+                rgba(255, 255, 255, 0.05),
+                transparent
+            );
+            transform: rotate(45deg);
+            transition: all 0.3s ease;
+        }
+
+        .side-button:hover::after {
+            animation: button-shine 1.5s ease;
+        }
+
+        @keyframes button-shine {
+            from {
+                left: -50%;
+            }
+            to {
+                left: 100%;
+            }
+        }
+
+        .progress-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 15px;
+            border: 1px solid rgba(102, 102, 102, 0.3);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            z-index: 2;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(102, 102, 102, 0.5);
+            margin: 8px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, 
+                rgba(76, 175, 80, 0.8),
+                rgba(76, 175, 80, 1)
+            );
+            width: 0%;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.1),
+                transparent
+            );
+            animation: shine 2s infinite;
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .status-text {
+            color: #4CAF50;
+            margin: 5px 0;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        #total-status {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+
+        .close-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 0, 0, 0.7);
+            border: none;
+            color: white;
+            cursor: pointer;
+            -webkit-app-region: no-drag;
+            z-index: 4;
+        }
+
+        .config-panel {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px;
+            border-radius: 15px;
+            border: 1px solid rgba(102, 102, 102, 0.5);
+            z-index: 3;
+            display: none;
+            -webkit-app-region: no-drag;
+            min-width: 250px;
+        }
+
+        .config-panel.visible {
+            display: block;
+        }
+
+        .config-panel input {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(102, 102, 102, 0.5);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            -webkit-app-region: no-drag;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .config-panel input:focus {
+            border-color: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+            outline: none;
+        }
+
+        #current-directory {
+            position: static;
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 5px;
+            word-break: break-all;
+            max-width: 180px;
+        }
+
+        .window-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            -webkit-app-region: no-drag;
+        }
+
+        .button-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin: 15px 0;
+            padding: 5px;
+            background: rgba(42, 42, 42, 0.5);
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+        }
+
+        .button-container button {
+            min-width: 150px;
+        }
+
+        .main-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+        }
+
+        /* Custom scrollbar */
+        .main-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .main-content::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        .main-content::-webkit-scrollbar-thumb {
+            background: #4CAF50;
+            border-radius: 4px;
+        }
+
+        .main-content::-webkit-scrollbar-thumb:hover {
+            background: #45a049;
+        }
+
+        /* Add pulsing animation to progress bars during active downloads */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 5px rgba(76, 175, 80, 0.5); }
+            50% { box-shadow: 0 0 15px rgba(76, 175, 80, 0.7); }
+            100% { box-shadow: 0 0 5px rgba(76, 175, 80, 0.5); }
+        }
+
+        .progress-fill.active {
+            animation: pulse 2s infinite;
+        }
+
+        .install-location-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .install-path {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        /* Add this new style */
+        .background-wrapper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('./img/background.png') no-repeat center center;
+            background-size: cover;
+            border-radius: 12px;
+            overflow: hidden;
+            z-index: 1;
+        }
+    </style>
 </head>
 <body>
-  <h1>Choose Your Path</h1>
-  <button onclick="selectPath('light')">Light Side</button>
-  <button onclick="selectPath('dark')">Dark Side</button>
-  <button onclick="selectPath('grey')">Grey Jedi</button>
-  <br><br>
-  <button onclick="playIntro()">Play Intro</button>
-  <button onclick="skipAndStart()">Skip Intro</button>
+    <!-- Add this new div right after body opens -->
+    <div class="background-wrapper"></div>
+    
+    <div class="main-content">
+        <button class="close-button" onclick="window.close()">×</button>
 
-  <script>
-    function selectPath(path) {
-      window.huntedAPI.setAlignment(path);
-      alert("Selected " + path + " path!");
-    }
+        <div class="play-button" onclick="launchGame()">Play</div>
 
-    function playIntro() {
-      const alignment = window.huntedAPI.getAlignment();
-      const video = document.createElement("video");
-      video.controls = false;
-      video.autoplay = true;
-      video.src = `assets/intro_${alignment || 'light'}.mp4`;
-      video.style.width = "100%";
-      document.body.innerHTML = "";
-      document.body.appendChild(video);
-      video.onended = () => location.href = 'main_menu.html';
-    }
+        <div class="side-buttons">
+            <button class="side-button" onclick="checkFiles()">Full Scan</button>
+            <button class="side-button" onclick="launchSettings()">Settings</button>
+            <div class="install-location-container">
+                <button class="side-button" onclick="selectInstallLocation()">Install Location</button>
+                <div id="current-directory" class="install-path"></div>
+            </div>
+        </div>
 
-    function skipAndStart() {
-      window.huntedAPI.skipIntro();
-      location.href = 'main_menu.html';
-    }
-  </script>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div id="total-progress" class="progress-fill"></div>
+            </div>
+            <div id="total-status" class="status-text">0/0 files</div>
+            <div class="progress-bar">
+                <div id="file-progress" class="progress-fill"></div>
+            </div>
+            <div id="download-speed" class="status-text"></div>
+            <div id="status" class="status-text">Ready to play</div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
 </body>
 </html>
