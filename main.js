@@ -44,9 +44,9 @@ ipcMain.handle('check-files', async (event, requiredFiles) => {
   return missingFiles;
 });
 
-// Load the required files list from a remote server
+// Load the required files list from the new manifest
 ipcMain.handle('load-required-files', async () => {
-    const url = 'http://154.12.225.58/tre/required-files.json'; // Updated URL
+    const url = 'http://154.12.225.58/tre/hunted-manifest.json'; // Updated URL
     return new Promise((resolve, reject) => {
         http.get(url, (response) => { // Changed to http.get since the URL uses HTTP
             let data = '';
@@ -58,7 +58,10 @@ ipcMain.handle('load-required-files', async () => {
             response.on('end', () => {
                 try {
                     const jsonData = JSON.parse(data);
-                    resolve(jsonData);
+
+                    // Assuming hunted-manifest.json has a 'files' key that lists required files
+                    const requiredFiles = jsonData.files || [];
+                    resolve(requiredFiles);
                 } catch (error) {
                     reject(new Error('Failed to parse JSON data'));
                 }
