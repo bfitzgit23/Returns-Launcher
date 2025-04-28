@@ -1,330 +1,153 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-const path = require('path');
-const fs = require('fs-extra');
-const { spawn } = require('child_process');
-const crypto = require('crypto');
-const https = require('https');
-const http = require('http');
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const log = require("electron-log");
+const path = require("path");
+const url = require("url");
+const fs = require("fs");
+const mkdirp = require("mkdirp");
+
+// Instead of @electron/remote/main, import required files here
+const requiredFiles = require("./required-files.json");
+
+var setupWindow = null;
+var err;
+
+var configDir =
+  require("os").homedir() + "/Documents/My Games/SWG - Sentinels Republic";
+
+app.commandLine.appendSwitch("disable-http-cache");
+
+// Create config directory
+if (!fs.existsSync(configDir)) created = mkdirp.sync(configDir);
 
 let mainWindow;
-let settings;
-
-const VALID_EXE_NAME = 'SWGEmu.exe';
-const VALID_EXE_MD5 = '47436739d9adf27a7aca283f0f1b3e86'; // Replace with actual MD5
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    icon: path.join(__dirname, 'build', 'icon.ico'),
-    frame: false,
+    width: 1130,
+    height: 610,
+    resizable: false,
+    fullscreen: false,
+    fullscreenable: false,
+    maximizable: false,
+    minWidth: 1130,
+    minHeight: 610,
+    maxWidth: 1130,
+    maxHeight: 610,
     transparent: true,
-    resizable: false,  // Disable window resizing
+    show: false,
+    autoHideMenuBar: true,
+    frame: false,
     webPreferences: {
+      enableRemoteModule: true,
+      webviewTag: true,
+      webview: true,
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      disableBlinkFeatures: "Auxclick",
     },
-    backgroundColor: '#00000000',  // Fully transparent
-    hasShadow: false,  // Disable default window shadow
-    roundedCorners: true
+    icon: path.join(__dirname, "img/launcher-icon-64.png"),
   });
-
-  mainWindow.loadFile('index.html');
+  mainWindow.loadURL(
+    url.format({
+      pathname: path.join(__dirname, "index.html"),
+      protocol: "file:",
+      slashes: true,
+    })
+  );
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("closed", () => (mainWindow = null));
 }
 
-// File system operations
-ipcMain.handle('check-files', async (event, requiredFiles) => {
-  const missingFiles = [];
-  for (const file of requiredFiles) {
-    const exists = await fs.pathExists(file.path); // Assuming the file object has a 'path' property
-    if (!exists) {
-      missingFiles.push(file);
-    }
+app.on("ready", () => setTimeout(createWindow, 100)); // Linux / MacOS transparency fix
+app.on("window-all-closed", () => app.quit());
+
+ipcMain.on("open-directory-dialog", function (event, response) {
+  dialog
+    .showOpenDialog({
+      properties: ["openFile", "openDirectory"],
+    })
+    .then((result) => {
+      event.sender.send(response, result.filePaths[0]);
+    })
+    .catch((err) => {
+      console.log(err);
+    });
+});
+
+ipcMain.on("setup-game", function () {
+  setupGame();
+});
+
+function setupGame() {
+  if (setupWindow == null) {
+    setupWindow = new BrowserWindow({
+      width: 810,
+      height: 610,
+      resizable: false,
+      fullscreen: false,
+      fullscreenable: false,
+      maximizable: false,
+      maxWidth: 810,
+      maxHeight: 610,
+      transparent: true,
+      frame: false,
+      autoHideMenuBar: true,
+      webPreferences: {
+        enableRemoteModule: true,
+        webview: true,
+        webviewTag: true,
+        nodeIntegration: true,
+        contextIsolation: false,
+        disableBlinkFeatures: "Auxclick",
+      },
+      icon: path.join(__dirname, "img/installer-icon-64.png"),
+    });
+    setupWindow.loadURL(
+      url.format({
+        pathname: path.join(__dirname, "setup", "index.html"),
+        protocol: "file:",
+        slashes: true,
+      })
+    );
+    setupWindow.on("closed", () => {
+      setupWindow = null;
+    });
+  } else {
+    setupWindow.focus();
   }
-  return missingFiles;
-});
-
-// Load the required files list from the new manifest
-ipcMain.handle('load-required-files', async () => {
-    const url = 'http://154.12.225.58/tre/hunted-manifest.json'; // Updated URL
-    return new Promise((resolve, reject) => {
-        http.get(url, (response) => { // Changed to http.get since the URL uses HTTP
-            let data = '';
-
-            response.on('data', (chunk) => {
-                data += chunk;
-            });
-
-            response.on('end', () => {
-                try {
-                    const jsonData = JSON.parse(data);
-
-                    // Assuming hunted-manifest.json has a 'files' key that lists required files
-                    const requiredFiles = jsonData.files || [];
-                    resolve(requiredFiles);
-                } catch (error) {
-                    reject(new Error('Failed to parse JSON data'));
-                }
-            });
-        }).on('error', (error) => {
-            reject(new Error(`Failed to fetch required files list: ${error.message}`));
-        });
-    });
-});
-
-// Check MD5 of a file
-ipcMain.handle('check-md5', async (event, filePath) => {
-    return new Promise((resolve, reject) => {
-        const hash = crypto.createHash('md5');
-        const stream = fs.createReadStream(filePath);
-        
-        stream.on('data', data => hash.update(data));
-        stream.on('end', () => resolve(hash.digest('hex')));
-        stream.on('error', reject);
-    });
-});
-
-// Add this function to preserve player profiles
-async function preservePlayerProfiles(directory) {
-    const profilesPath = path.join(directory, 'profiles');
-    const backupPath = path.join(directory, 'profiles_backup');
-    
-    try {
-        if (await fs.pathExists(profilesPath)) {
-            // If backup exists, restore it first
-            if (await fs.pathExists(backupPath)) {
-                await fs.remove(profilesPath);
-                await fs.move(backupPath, profilesPath);
-            }
-        }
-    } catch (error) {
-        console.error('Error preserving player profiles:', error);
-    }
 }
 
-// Modify the download-file handler to preserve profiles
-ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, skipChecks }) => {
-    return new Promise(async (resolve, reject) => {
-        // Check if this is a tre file download
-        const isTreFile = destination.toLowerCase().endsWith('.tre');
-        const gameDir = path.dirname(destination);
-        
-        if (isTreFile) {
-            await preservePlayerProfiles(gameDir);
-        }
-        
-        fs.mkdirSync(path.dirname(destination), { recursive: true });
-        
-        function downloadWithRedirects(url) {
-            const protocol = url.startsWith('https') ? https : http;
-            
-            protocol.get(url, (response) => {
-                // Handle redirects
-                if (response.statusCode === 301 || response.statusCode === 302) {
-                    console.log(`Following redirect to: ${response.headers.location}`);
-                    downloadWithRedirects(response.headers.location);
-                    return;
-                }
-
-                if (response.statusCode !== 200) {
-                    reject(new Error(`Server returned status code: ${response.statusCode}`));
-                    return;
-                }
-
-                const file = fs.createWriteStream(destination);
-                let downloadedBytes = 0;
-                let startTime = Date.now();
-                
-                const totalBytes = parseInt(response.headers['content-length'], 10);
-                
-                response.on('data', (chunk) => {
-                    downloadedBytes += chunk.length;
-                    const percent = (downloadedBytes / totalBytes) * 100;
-                    const elapsedSeconds = (Date.now() - startTime) / 1000;
-                    const speed = downloadedBytes / elapsedSeconds;
-                    
-                    mainWindow.webContents.send('download-progress', {
-                        percent: percent,
-                        speed: speed
-                    });
-                });
-                
-                response.pipe(file);
-                
-                file.on('finish', () => {
-                    file.close();
-                    
-                    if (skipChecks) {
-                        resolve('success');
-                        return;
-                    }
-                    
-                    const hash = crypto.createHash('md5');
-                    const readStream = fs.createReadStream(destination);
-                    
-                    readStream.on('data', data => hash.update(data));
-                    readStream.on('end', async () => {
-                        const downloadedMd5 = hash.digest('hex');
-                        if (downloadedMd5 !== expectedMd5) {
-                            const response = await dialog.showMessageBox({
-                                type: 'warning',
-                                title: 'MD5 Mismatch',
-                                message: `MD5 mismatch detected for ${path.basename(destination)}`,
-                                detail: `Expected: ${expectedMd5}\nReceived: ${downloadedMd5}\n\nDo you want to keep this file anyway?`,
-                                buttons: ['Keep File', 'Delete and Retry'],
-                                defaultId: 1,
-                                cancelId: 1
-                            });
-
-                            if (response.response === 0) {
-                                resolve('kept-with-mismatch');
-                            } else {
-                                fs.unlinkSync(destination);
-                                reject(new Error(`MD5_MISMATCH:${path.basename(destination)}`));
-                            }
-                        } else {
-                            resolve('success');
-                        }
-                    });
-                    readStream.on('error', reject);
-                });
-            }).on('error', (err) => {
-                fs.unlink(destination, () => {});
-                reject(err);
-            });
-        }
-
-        downloadWithRedirects(url);
-    });
+ipcMain.on("setup-complete", (event, arg) => {
+  mainWindow.webContents.send("setup-begin-install", arg);
 });
 
-// Launch executable
-ipcMain.handle('select-directory', async () => {
-    const result = await dialog.showOpenDialog({
-        properties: ['openDirectory']
-    });
-    
-    if (!result.canceled) {
-        return result.filePaths[0];
-    }
-    return null;
+ipcMain.on("open-profcalc", function () {
+  window = new BrowserWindow({
+    width: 1296,
+    height: 839,
+    autoHideMenuBar: true,
+    webPreferences: {
+      enableRemoteModule: true,
+      webview: true,
+      webviewTag: true,
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  window.loadURL(
+    url.format({
+      pathname: path.join(__dirname, "profcalc", "index.html"),
+      protocol: "file:",
+      slashes: true,
+    })
+  );
+  if (require("electron-is-dev")) window.webContents.openDevTools();
 });
 
-// Regular launch for SWGEmu.exe
-ipcMain.handle('launch-game', async (event, exePath) => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            // Verify filename
-            const basename = path.basename(exePath);
-            if (basename !== VALID_EXE_NAME) {
-                throw new Error('Invalid executable name detected');
-            }
-
-            // Verify MD5 one final time
-            const fileHash = await new Promise((resolve, reject) => {
-                const hash = crypto.createHash('md5');
-                const stream = fs.createReadStream(exePath);
-                
-                stream.on('data', data => hash.update(data));
-                stream.on('end', () => resolve(hash.digest('hex')));
-                stream.on('error', reject);
-            });
-
-            if (fileHash !== VALID_EXE_MD5) {
-                throw new Error('Executable file hash verification failed');
-            }
-
-            // If verification passes, launch the game
-            const workingDir = path.dirname(exePath);
-            const process = spawn(exePath, [], {
-                cwd: workingDir,
-                detached: true,
-                stdio: 'ignore'
-            });
-
-            process.unref();
-            resolve();
-        } catch (error) {
-            reject(`Security check failed: ${error.message}`);
-        }
-    });
+ipcMain.on("minimise_mainwindow", function () {
+  mainWindow.minimize();
 });
 
-// Admin launch for SWGEmu_Setup.exe
-ipcMain.handle('launch-admin', async (event, exePath) => {
-    try {
-        await shell.openPath(exePath);
-        return true;
-    } catch (error) {
-        throw error;
-    }
-});
-
-// Handle config file updates
-ipcMain.handle('update-config', async (event, { directory, content }) => {
-    const configPath = path.join(directory, 'swgemu_login.cfg');
-    try {
-        await fs.writeFile(configPath, content, 'utf8');
-        return true;
-    } catch (error) {
-        throw error;
-    }
-});
-
-// Add this function to handle settings
-function loadSettings() {
-    const userDataPath = app.getPath('userData');
-    const settingsPath = path.join(userDataPath, 'settings.json');
-    
-    try {
-        if (fs.existsSync(settingsPath)) {
-            settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        } else {
-            settings = { installDir: null };
-            fs.writeFileSync(settingsPath, JSON.stringify(settings));
-        }
-    } catch (error) {
-        console.error('Error loading settings:', error);
-        settings = { installDir: null };
-    }
-}
-
-function saveSettings() {
-    const userDataPath = app.getPath('userData');
-    const settingsPath = path.join(userDataPath, 'settings.json');
-    
-    try {
-        fs.writeFileSync(settingsPath, JSON.stringify(settings));
-    } catch (error) {
-        console.error('Error saving settings:', error);
-    }
-}
-
-// Load settings when app starts
-app.whenReady().then(() => {
-    loadSettings();
-    createWindow();
-});
-
-// Add these IPC handlers
-ipcMain.handle('get-install-dir', () => {
-    return settings.installDir;
-});
-
-ipcMain.handle('save-install-dir', (event, dir) => {
-    settings.installDir = dir;
-    saveSettings();
-    return true;
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+ipcMain.on("close_mainwindow", function () {
+  mainWindow.close();
 });
