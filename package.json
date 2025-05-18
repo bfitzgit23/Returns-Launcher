@@ -11,7 +11,7 @@
     "build-mac": "electron-builder --mac --x64"
   },
   "repository": "https://github.com/bfitzgit23/SWG-Hunted-Launcher",
-  "homepage": "https://force-alliance.online",
+  "homepage": "https://swghunted.online",
   "keywords": [
     "hunted",
     "launcher",
@@ -24,7 +24,7 @@
     "emu",
     "swgemu"
   ],
-  "author": "Force_Alliance",
+  "author": "The_Hunted_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
     "electron": "^25.2.0",
