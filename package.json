@@ -1,7 +1,7 @@
     {
-  "name": "SWG-Hunted-launcher",
+  "name": "BG-launcher",
   "version": "1.1.0",
-  "description": "SWG-Hunted-launcher",
+  "description": "BG-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -24,7 +24,7 @@
     "emu",
     "swgemu"
   ],
-  "author": "The_Hunted_Dev",
+  "author": "BG_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
     "electron": "^25.2.0",
@@ -43,8 +43,8 @@
     "request": "^2.88.2"
   },
  "build": {
-    "appId": "com.swghunted.launcher",
-    "productName": "SWG Hunted Launcher",
+    "appId": "com.bg.launcher",
+    "productName": "BG Launcher",
     "win": {
       "target": [
         {
