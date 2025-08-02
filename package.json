@@ -1,7 +1,7 @@
     {
-  "name": "BG-launcher",
+  "name": "Returns-launcher",
   "version": "1.1.0",
-  "description": "BG-launcher",
+  "description": "Returns-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,8 +10,8 @@
     "build-linux": "electron-builder --linux --x64",
     "build-mac": "electron-builder --mac --x64"
   },
-  "repository": "https://github.com/bfitzgit23/BG-Launcher",
-  "homepage": "https://swghunted.online",
+  "repository": "https://github.com/bfitzgit23/Returns-Launcher",
+  "homepage": "https://swgreturns.com",
   "keywords": [
     "hunted",
     "launcher",
@@ -24,7 +24,7 @@
     "emu",
     "swgemu"
   ],
-  "author": "BG_Dev",
+  "author": "Returns_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
     "electron": "^25.2.0",
@@ -43,8 +43,8 @@
     "request": "^2.88.2"
   },
  "build": {
-    "appId": "com.bg.launcher",
-    "productName": "BG Launcher",
+    "appId": "com.returns.launcher",
+    "productName": "Returns Launcher",
     "win": {
       "target": [
         {
