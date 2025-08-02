@@ -46,7 +46,7 @@ ipcMain.handle('check-files', async (event, requiredFiles) => {
 
 // Load the required files list from a remote server
 ipcMain.handle('load-required-files', async () => {
-    const url = 'http://62.146.229.237/tre/required-files.json'; // Updated URL
+    const url = 'http://144.217.255.58/tre/required-files.json'; // Updated URL
     return new Promise((resolve, reject) => {
         http.get(url, (response) => { // Changed to http.get since the URL uses HTTP
             let data = '';
