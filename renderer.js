@@ -188,7 +188,7 @@ async function updateConfig() {
     }
 
     try {
-        const config = `[ClientGame]\nloginServerAddress0=62.146.229.237\nloginServerPort0=44453`;
+        const config = `[ClientGame]\nloginServerAddress0=144.217.255.58\nloginServerPort0=44453`;
         
         await ipcRenderer.invoke('update-config', {
             directory: selectedDirectory,
