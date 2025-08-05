@@ -1,5 +1,5 @@
 {
     "address": "15.204.254.253",
     "port": "44453",
-    "manifestUrl": "http://15.204.254.253//tre/required-files.json"
+    "manifestUrl": "http://15.204.254.253/tre/required-files.json"
 }
