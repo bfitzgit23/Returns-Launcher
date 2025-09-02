@@ -24,6 +24,7 @@
     "emu",
     "swgemu"
   ],
+  {
   "author": "Revenant_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
