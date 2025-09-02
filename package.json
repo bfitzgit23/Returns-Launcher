@@ -1,7 +1,7 @@
     {
   "name": "Revenant-launcher",
   "version": "1.1.0",
-  "description": Revenant-launcher",
+  "description": "Revenant-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -24,7 +24,6 @@
     "emu",
     "swgemu"
   ],
-  {
   "author": "Revenant_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
