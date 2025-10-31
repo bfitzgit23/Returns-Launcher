@@ -3,7 +3,7 @@ const { ipcRenderer } = require('electron');
 const fs = require('fs').promises;
 const path = require('path');
 
-const BASE_URL = 'http://154.38.191.133/tre/';
+const BASE_URL = 'http://15.204.254.253/tre/';
 
 let selectedDirectory = null;  // Store the selected directory
 
@@ -193,7 +193,7 @@ async function updateConfig() {
     }
 
     try {
-        const config = `[ClientGame]\nloginServerAddress0=154.38.191.133\nloginServerPort0=44453`;
+        const config = `[ClientGame]\nloginServerAddress0=144.217.255.58\nloginServerPort0=44453`;
         await ipcRenderer.invoke('update-config', {
             directory: selectedDirectory,
             content: config
