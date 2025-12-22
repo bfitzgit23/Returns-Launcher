@@ -1,60 +1,111 @@
-const { ipcRenderer } = require('electron');
-const fs = require('fs').promises;
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
+
+let mainWindow;
 
 const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
-let selectedDirectory = null;
-let scanMode = 'quick'; // quick | full
 
-function setScanMode(mode) {
-    scanMode = mode;
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1100,
+        height: 700,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+        }
+    });
+
+    mainWindow.loadFile('index.html');
 }
 
-async function selectInstallLocation() {
-    selectedDirectory = await ipcRenderer.invoke('select-directory');
-    if (!selectedDirectory) return;
-    await ipcRenderer.invoke('save-install-dir', selectedDirectory);
-    await checkFiles();
-}
+app.whenReady().then(createWindow);
 
-async function checkFiles() {
-    const files = await ipcRenderer.invoke('load-required-files');
-    let done = 0;
+ipcMain.handle('select-directory', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0];
+});
 
-    for (const f of files) {
-        const dest = path.join(selectedDirectory, f.path);
+ipcMain.handle('load-required-files', async () => {
+    return new Promise((resolve, reject) => {
+        http.get(BASE_URL + 'required-files.json', res => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => resolve(JSON.parse(data)));
+        }).on('error', reject);
+    });
+});
 
-        let needsDownload = false;
+ipcMain.handle('check-sha256', async (_, filePath) => {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        fs.createReadStream(filePath)
+            .on('data', d => hash.update(d))
+            .on('end', () => resolve(hash.digest('hex')))
+            .on('error', reject);
+    });
+});
 
-        try {
-            const stat = await fs.stat(dest);
-            if (stat.size !== f.size) needsDownload = true;
+ipcMain.handle('download-file', async (event, { url, destination, size }) => {
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
 
-            if (!needsDownload && scanMode === 'full') {
-                const hash = await ipcRenderer.invoke('check-sha256', dest);
-                if (hash !== f.sha256) needsDownload = true;
-            }
-        } catch {
-            needsDownload = true;
-        }
-
-        if (needsDownload) {
-            await ipcRenderer.invoke('download-file', {
-                url: BASE_URL + f.path.replace(/\\/g, '/'),
-                destination: dest,
-                expectedSha256: f.sha256
-            });
-        }
-
-        done++;
-        document.getElementById('total-status').textContent = `${done}/${files.length}`;
+    let start = 0;
+    if (fs.existsSync(destination)) {
+        start = fs.statSync(destination).size;
     }
-}
 
-async function launchGame() {
-    await ipcRenderer.invoke('launch-game', path.join(selectedDirectory, 'SWGEmu.exe'));
-}
+    return new Promise((resolve, reject) => {
+        const options = {
+            headers: start > 0 ? { Range: `bytes=${start}-` } : {}
+        };
 
-window.selectInstallLocation = selectInstallLocation;
-window.launchGame = launchGame;
-window.setScanMode = setScanMode;
+        const file = fs.createWriteStream(destination, { flags: start > 0 ? 'a' : 'w' });
+        let downloaded = start;
+
+        http.get(url, options, res => {
+            if (![200, 206].includes(res.statusCode)) {
+                reject(`HTTP ${res.statusCode}`);
+                return;
+            }
+
+            res.on('data', chunk => {
+                downloaded += chunk.length;
+                file.write(chunk);
+
+                event.sender.send('file-progress', {
+                    downloaded,
+                    total: size
+                });
+            });
+
+            res.on('end', () => {
+                file.close(resolve);
+            });
+
+        }).on('error', reject);
+    });
+});
+
+ipcMain.handle('save-install-dir', (_, dir) => {
+    fs.writeFileSync(path.join(app.getPath('userData'), 'installDir.txt'), dir);
+});
+
+ipcMain.handle('get-install-dir', () => {
+    const p = path.join(app.getPath('userData'), 'installDir.txt');
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+});
+
+ipcMain.handle('save-scan-mode', (_, mode) => {
+    fs.writeFileSync(path.join(app.getPath('userData'), 'scanMode.txt'), mode);
+});
+
+ipcMain.handle('get-scan-mode', () => {
+    const p = path.join(app.getPath('userData'), 'scanMode.txt');
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : 'quick';
+});
+
+ipcMain.handle('launch-game', (_, exePath) => {
+    require('child_process').spawn(exePath, { detached: true });
+});
