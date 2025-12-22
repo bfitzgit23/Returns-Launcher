@@ -17,19 +17,24 @@ function createWindow() {
         resizable: false,
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false
+            contextIsolation: false,
+            enableRemoteModule: false
         },
         backgroundColor: '#00000000',
         hasShadow: false
     });
 
     mainWindow.loadFile('index.html');
+    
+    // Open DevTools for debugging (remove in production)
+    // mainWindow.webContents.openDevTools();
 }
 
 // Load required files from server
 ipcMain.handle('load-required-files', async () => {
     return new Promise((resolve, reject) => {
         const url = BASE_URL + 'required-files.json';
+        console.log(`Loading files from: ${url}`);
         
         const req = http.get(url, (response) => {
             if (response.statusCode !== 200) {
@@ -46,31 +51,38 @@ ipcMain.handle('load-required-files', async () => {
                 try {
                     const jsonData = JSON.parse(data);
                     
-                    // Validate and clean the data
+                    // Validate and filter data
                     if (!Array.isArray(jsonData)) {
                         throw new Error('File list is not an array');
                     }
                     
-                    // Filter out invalid entries
                     const validData = jsonData.filter(item => {
-                        return item && item.name && typeof item.name === 'string';
+                        return item && 
+                               item.name && 
+                               typeof item.name === 'string' && 
+                               item.name.trim() !== '' &&
+                               item.url &&
+                               item.md5 &&
+                               item.size > 0;
                     });
                     
                     console.log(`Loaded ${validData.length} valid files from server`);
                     resolve(validData);
                 } catch (error) {
+                    console.error('JSON parse error:', error);
                     reject(new Error('Failed to parse JSON: ' + error.message));
                 }
             });
         });
 
         req.on('error', (error) => {
+            console.error('HTTP request error:', error);
             reject(new Error('Failed to fetch files list: ' + error.message));
         });
 
-        req.setTimeout(10000, () => {
+        req.setTimeout(15000, () => {
             req.destroy();
-            reject(new Error('Request timeout after 10 seconds'));
+            reject(new Error('Request timeout after 15 seconds'));
         });
     });
 });
@@ -113,6 +125,9 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
 
         const file = fs.createWriteStream(destination);
         let downloadedBytes = 0;
+        const startTime = Date.now();
+        
+        console.log(`Downloading: ${url} to ${destination}`);
         
         const req = http.get(url, (response) => {
             // Handle redirects
@@ -147,6 +162,8 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
             
             file.on('finish', () => {
                 file.close();
+                const elapsedTime = (Date.now() - startTime) / 1000;
+                console.log(`Download completed in ${elapsedTime.toFixed(2)}s: ${destination}`);
                 
                 // Verify MD5 if expectedMd5 is provided
                 if (expectedMd5) {
@@ -172,10 +189,16 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
         });
 
         req.on('error', (error) => {
+            console.error(`Download error for ${url}:`, error);
             if (fs.existsSync(destination)) {
                 fs.unlink(destination, () => {});
             }
             reject(error);
+        });
+        
+        req.setTimeout(30000, () => {
+            req.destroy();
+            reject(new Error('Download timeout after 30 seconds'));
         });
     });
 });
@@ -183,7 +206,8 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
 // Directory selection
 ipcMain.handle('select-directory', async () => {
     const result = await dialog.showOpenDialog({
-        properties: ['openDirectory']
+        properties: ['openDirectory'],
+        title: 'Select SWG Installation Directory'
     });
     
     if (!result.canceled && result.filePaths.length > 0) {
@@ -205,13 +229,17 @@ ipcMain.handle('launch-game', async (event, exePath) => {
             return;
         }
 
-        const process = require('child_process').spawn(exePath, [], {
-            detached: true,
-            stdio: 'ignore'
-        });
+        try {
+            const process = require('child_process').spawn(exePath, [], {
+                detached: true,
+                stdio: 'ignore'
+            });
 
-        process.unref();
-        resolve();
+            process.unref();
+            resolve();
+        } catch (error) {
+            reject(error);
+        }
     });
 });
 
@@ -224,6 +252,7 @@ ipcMain.handle('save-install-dir', (event, dir) => {
     
     settings.installDir = dir;
     fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    console.log(`Saved install directory: ${dir}`);
 });
 
 ipcMain.handle('get-install-dir', () => {
@@ -244,6 +273,7 @@ ipcMain.handle('save-scan-mode', (event, mode) => {
     
     settings.scanMode = mode;
     fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    console.log(`Saved scan mode: ${mode}`);
 });
 
 ipcMain.handle('get-scan-mode', () => {
@@ -271,4 +301,13 @@ app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
     }
+});
+
+// Handle errors
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
