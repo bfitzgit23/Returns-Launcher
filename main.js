@@ -10,102 +10,224 @@ const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1100,
-        height: 700,
+        width: 800,
+        height: 600,
+        frame: false,
+        transparent: true,
+        resizable: false,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false
-        }
+        },
+        backgroundColor: '#00000000',
+        hasShadow: false
     });
 
     mainWindow.loadFile('index.html');
 }
 
-app.whenReady().then(createWindow);
-
-ipcMain.handle('select-directory', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0];
-});
-
+// Load required files from server
 ipcMain.handle('load-required-files', async () => {
     return new Promise((resolve, reject) => {
-        http.get(BASE_URL + 'required-files.json', res => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => resolve(JSON.parse(data)));
-        }).on('error', reject);
-    });
-});
-
-ipcMain.handle('check-sha256', async (_, filePath) => {
-    return new Promise((resolve, reject) => {
-        const hash = crypto.createHash('sha256');
-        fs.createReadStream(filePath)
-            .on('data', d => hash.update(d))
-            .on('end', () => resolve(hash.digest('hex')))
-            .on('error', reject);
-    });
-});
-
-ipcMain.handle('download-file', async (event, { url, destination, size }) => {
-    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
-
-    let start = 0;
-    if (fs.existsSync(destination)) {
-        start = fs.statSync(destination).size;
-    }
-
-    return new Promise((resolve, reject) => {
-        const options = {
-            headers: start > 0 ? { Range: `bytes=${start}-` } : {}
-        };
-
-        const file = fs.createWriteStream(destination, { flags: start > 0 ? 'a' : 'w' });
-        let downloaded = start;
-
-        http.get(url, options, res => {
-            if (![200, 206].includes(res.statusCode)) {
-                reject(`HTTP ${res.statusCode}`);
+        const url = BASE_URL + 'required-files.json';
+        
+        http.get(url, (response) => {
+            if (response.statusCode !== 200) {
+                reject(new Error(`Server returned status code: ${response.statusCode}`));
                 return;
             }
 
-            res.on('data', chunk => {
-                downloaded += chunk.length;
-                file.write(chunk);
-
-                event.sender.send('file-progress', {
-                    downloaded,
-                    total: size
-                });
+            let data = '';
+            response.on('data', (chunk) => {
+                data += chunk;
             });
 
-            res.on('end', () => {
-                file.close(resolve);
+            response.on('end', () => {
+                try {
+                    const jsonData = JSON.parse(data);
+                    resolve(jsonData);
+                } catch (error) {
+                    reject(new Error('Failed to parse JSON: ' + error.message));
+                }
             });
-
-        }).on('error', reject);
+        }).on('error', (error) => {
+            reject(new Error('Failed to fetch files list: ' + error.message));
+        });
     });
 });
 
-ipcMain.handle('save-install-dir', (_, dir) => {
-    fs.writeFileSync(path.join(app.getPath('userData'), 'installDir.txt'), dir);
+// Check MD5 of a file
+ipcMain.handle('check-md5', async (event, filePath) => {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(filePath)) {
+            reject(new Error('File does not exist'));
+            return;
+        }
+
+        const hash = crypto.createHash('md5');
+        const stream = fs.createReadStream(filePath);
+        
+        stream.on('data', (data) => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+});
+
+// Download file with progress
+ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, size }) => {
+    return new Promise((resolve, reject) => {
+        // Ensure destination directory exists
+        const dir = path.dirname(destination);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        const file = fs.createWriteStream(destination);
+        let downloadedBytes = 0;
+        
+        const req = http.get(url, (response) => {
+            // Handle redirects
+            if (response.statusCode === 301 || response.statusCode === 302) {
+                http.get(response.headers.location, (redirectResponse) => {
+                    redirectResponse.pipe(file);
+                });
+                return;
+            }
+
+            if (response.statusCode !== 200) {
+                reject(new Error(`HTTP ${response.statusCode}`));
+                return;
+            }
+
+            const totalBytes = parseInt(response.headers['content-length'], 10) || size;
+            
+            response.on('data', (chunk) => {
+                downloadedBytes += chunk.length;
+                const percent = (downloadedBytes / totalBytes) * 100;
+                
+                // Send progress to renderer
+                mainWindow.webContents.send('file-progress', {
+                    downloaded: downloadedBytes,
+                    total: totalBytes,
+                    percent: percent
+                });
+            });
+
+            response.pipe(file);
+            
+            file.on('finish', () => {
+                file.close();
+                
+                // Verify MD5
+                const hash = crypto.createHash('md5');
+                const readStream = fs.createReadStream(destination);
+                
+                readStream.on('data', (data) => hash.update(data));
+                readStream.on('end', () => {
+                    const downloadedMd5 = hash.digest('hex');
+                    
+                    if (expectedMd5 && downloadedMd5 !== expectedMd5) {
+                        fs.unlinkSync(destination);
+                        reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
+                    } else {
+                        resolve({ path: destination, md5: downloadedMd5 });
+                    }
+                });
+                readStream.on('error', reject);
+            });
+        });
+
+        req.on('error', (error) => {
+            fs.unlink(destination, () => {});
+            reject(error);
+        });
+    });
+});
+
+// Directory selection
+ipcMain.handle('select-directory', async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ['openDirectory']
+    });
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+        return result.filePaths[0];
+    }
+    return null;
+});
+
+// Launch game
+ipcMain.handle('launch-game', async (event, exePath) => {
+    return new Promise((resolve, reject) => {
+        if (!fs.existsSync(exePath)) {
+            reject(new Error('Executable not found'));
+            return;
+        }
+
+        const process = require('child_process').spawn(exePath, [], {
+            detached: true,
+            stdio: 'ignore'
+        });
+
+        process.unref();
+        resolve();
+    });
+});
+
+// Settings management
+ipcMain.handle('save-install-dir', (event, dir) => {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settings = fs.existsSync(settingsPath) 
+        ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+        : {};
+    
+    settings.installDir = dir;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings));
 });
 
 ipcMain.handle('get-install-dir', () => {
-    const p = path.join(app.getPath('userData'), 'installDir.txt');
-    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    
+    if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        return settings.installDir || null;
+    }
+    return null;
 });
 
-ipcMain.handle('save-scan-mode', (_, mode) => {
-    fs.writeFileSync(path.join(app.getPath('userData'), 'scanMode.txt'), mode);
+ipcMain.handle('save-scan-mode', (event, mode) => {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settings = fs.existsSync(settingsPath) 
+        ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+        : {};
+    
+    settings.scanMode = mode;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings));
 });
 
 ipcMain.handle('get-scan-mode', () => {
-    const p = path.join(app.getPath('userData'), 'scanMode.txt');
-    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : 'quick';
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    
+    if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        return settings.scanMode || 'quick';
+    }
+    return 'quick';
 });
 
-ipcMain.handle('launch-game', (_, exePath) => {
-    require('child_process').spawn(exePath, { detached: true });
+// App lifecycle
+app.whenReady().then(() => {
+    createWindow();
+});
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
 });
