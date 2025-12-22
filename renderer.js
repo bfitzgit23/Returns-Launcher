@@ -3,7 +3,7 @@ const { ipcRenderer } = require('electron');
 const fs = require('fs').promises;
 const path = require('path');
 
-const BASE_URL = 'http://15.204.254.253/tre/';
+const BASE_URL = 'http://15.204.254.253/tre/carbonite';
 
 let selectedDirectory = null;  // Store the selected directory
 
