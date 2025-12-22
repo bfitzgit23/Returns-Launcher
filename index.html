@@ -270,6 +270,35 @@
             z-index: 99;
             display: none;
         }
+        
+        .paypal-donate {
+            background: linear-gradient(to bottom, #0070ba, #003087);
+            border: 1px solid #003087;
+            color: white;
+            padding: 8px 16px;
+            width: 200px;
+            cursor: pointer;
+            border-radius: 8px;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 1px;
+            transition: 0.2s ease;
+            -webkit-app-region: no-drag;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .paypal-donate:hover {
+            background: linear-gradient(to bottom, #0090fa, #0050c7);
+            transform: translateY(-1px);
+        }
+        
+        .paypal-icon {
+            font-weight: bold;
+            font-size: 14px;
+        }
     </style>
 </head>
 
@@ -338,7 +367,11 @@
                 <button class="mini-button" id="pause-button">Pause Scan</button>
                 <button class="mini-button" id="clear-cache">Clear Cache</button>
                 <button class="mini-button" id="view-logs">View Logs</button>
-                <button class="mini-button" id="donate-button">Donate</button>
+                <!-- PayPal Donate Button -->
+                <button class="paypal-donate" id="donate-button">
+                    <span class="paypal-icon">PayPal</span>
+                    <span>Donate</span>
+                </button>
             </div>
         </div>
 
