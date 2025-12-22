@@ -31,7 +31,7 @@ ipcMain.handle('load-required-files', async () => {
     return new Promise((resolve, reject) => {
         const url = BASE_URL + 'required-files.json';
         
-        http.get(url, (response) => {
+        const req = http.get(url, (response) => {
             if (response.statusCode !== 200) {
                 reject(new Error(`Server returned status code: ${response.statusCode}`));
                 return;
@@ -45,13 +45,32 @@ ipcMain.handle('load-required-files', async () => {
             response.on('end', () => {
                 try {
                     const jsonData = JSON.parse(data);
-                    resolve(jsonData);
+                    
+                    // Validate and clean the data
+                    if (!Array.isArray(jsonData)) {
+                        throw new Error('File list is not an array');
+                    }
+                    
+                    // Filter out invalid entries
+                    const validData = jsonData.filter(item => {
+                        return item && item.name && typeof item.name === 'string';
+                    });
+                    
+                    console.log(`Loaded ${validData.length} valid files from server`);
+                    resolve(validData);
                 } catch (error) {
                     reject(new Error('Failed to parse JSON: ' + error.message));
                 }
             });
-        }).on('error', (error) => {
+        });
+
+        req.on('error', (error) => {
             reject(new Error('Failed to fetch files list: ' + error.message));
+        });
+
+        req.setTimeout(10000, () => {
+            req.destroy();
+            reject(new Error('Request timeout after 10 seconds'));
         });
     });
 });
@@ -59,8 +78,13 @@ ipcMain.handle('load-required-files', async () => {
 // Check MD5 of a file
 ipcMain.handle('check-md5', async (event, filePath) => {
     return new Promise((resolve, reject) => {
+        if (!filePath || typeof filePath !== 'string') {
+            reject(new Error('Invalid file path'));
+            return;
+        }
+        
         if (!fs.existsSync(filePath)) {
-            reject(new Error('File does not exist'));
+            reject(new Error('File does not exist: ' + filePath));
             return;
         }
 
@@ -76,6 +100,11 @@ ipcMain.handle('check-md5', async (event, filePath) => {
 // Download file with progress
 ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, size }) => {
     return new Promise((resolve, reject) => {
+        if (!url || !destination) {
+            reject(new Error('URL and destination are required'));
+            return;
+        }
+
         // Ensure destination directory exists
         const dir = path.dirname(destination);
         if (!fs.existsSync(dir)) {
@@ -99,17 +128,18 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
                 return;
             }
 
-            const totalBytes = parseInt(response.headers['content-length'], 10) || size;
+            const totalBytes = parseInt(response.headers['content-length'], 10) || size || 0;
             
             response.on('data', (chunk) => {
                 downloadedBytes += chunk.length;
-                const percent = (downloadedBytes / totalBytes) * 100;
+                const percent = totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 0;
                 
                 // Send progress to renderer
                 mainWindow.webContents.send('file-progress', {
                     downloaded: downloadedBytes,
                     total: totalBytes,
-                    percent: percent
+                    percent: percent,
+                    delta: chunk.length
                 });
             });
 
@@ -118,27 +148,33 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
             file.on('finish', () => {
                 file.close();
                 
-                // Verify MD5
-                const hash = crypto.createHash('md5');
-                const readStream = fs.createReadStream(destination);
-                
-                readStream.on('data', (data) => hash.update(data));
-                readStream.on('end', () => {
-                    const downloadedMd5 = hash.digest('hex');
+                // Verify MD5 if expectedMd5 is provided
+                if (expectedMd5) {
+                    const hash = crypto.createHash('md5');
+                    const readStream = fs.createReadStream(destination);
                     
-                    if (expectedMd5 && downloadedMd5 !== expectedMd5) {
-                        fs.unlinkSync(destination);
-                        reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
-                    } else {
-                        resolve({ path: destination, md5: downloadedMd5 });
-                    }
-                });
-                readStream.on('error', reject);
+                    readStream.on('data', (data) => hash.update(data));
+                    readStream.on('end', () => {
+                        const downloadedMd5 = hash.digest('hex');
+                        
+                        if (downloadedMd5 !== expectedMd5) {
+                            fs.unlinkSync(destination);
+                            reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
+                        } else {
+                            resolve({ path: destination, md5: downloadedMd5 });
+                        }
+                    });
+                    readStream.on('error', reject);
+                } else {
+                    resolve({ path: destination });
+                }
             });
         });
 
         req.on('error', (error) => {
-            fs.unlink(destination, () => {});
+            if (fs.existsSync(destination)) {
+                fs.unlink(destination, () => {});
+            }
             reject(error);
         });
     });
@@ -159,8 +195,13 @@ ipcMain.handle('select-directory', async () => {
 // Launch game
 ipcMain.handle('launch-game', async (event, exePath) => {
     return new Promise((resolve, reject) => {
+        if (!exePath || typeof exePath !== 'string') {
+            reject(new Error('Invalid executable path'));
+            return;
+        }
+        
         if (!fs.existsSync(exePath)) {
-            reject(new Error('Executable not found'));
+            reject(new Error('Executable not found: ' + exePath));
             return;
         }
 
