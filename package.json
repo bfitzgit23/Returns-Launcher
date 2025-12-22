@@ -10,8 +10,8 @@
     "build-linux": "electron-builder --linux --x64",
     "build-mac": "electron-builder --mac --x64"
   },
-  "repository": "https://github.com/bfitzgit23/epic-Launcher",
-  "homepage": "https://swgepic.github.io",
+  "repository": "https://github.com/bfitzgit23/Epic-Launcher",
+  "homepage": "https://swgreturns.github.io",
   "keywords": [
     "hunted",
     "launcher",
