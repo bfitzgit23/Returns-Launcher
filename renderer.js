@@ -56,8 +56,10 @@ window.setScanMode = function(mode) {
 
 window.togglePause = function() {
     paused = !paused;
-    const pauseButton = document.querySelector('.side-button:nth-child(4)');
-    pauseButton.textContent = paused ? 'Resume' : 'Pause';
+    const pauseButton = document.querySelector('.side-button:nth-child(5)');
+    if (pauseButton) {
+        pauseButton.textContent = paused ? 'Resume' : 'Pause';
+    }
     document.getElementById('status').textContent = paused ? 'Downloads paused' : 'Downloads resumed';
 };
 
@@ -97,11 +99,21 @@ window.checkFiles = async function() {
     try {
         // Load required files from server
         requiredFiles = await ipcRenderer.invoke('load-required-files');
+        
+        if (!Array.isArray(requiredFiles)) {
+            throw new Error('Invalid file list format');
+        }
+        
+        // Filter out invalid entries
+        requiredFiles = requiredFiles.filter(file => {
+            return file && file.name && typeof file.name === 'string';
+        });
+        
         totalFiles = requiredFiles.length;
         completedFiles = 0;
         
         if (totalFiles === 0) {
-            document.getElementById('status').textContent = 'No files in manifest';
+            document.getElementById('status').textContent = 'No valid files in manifest';
             return;
         }
         
@@ -118,6 +130,13 @@ window.checkFiles = async function() {
             }
             
             const file = requiredFiles[i];
+            
+            // Validate file object
+            if (!file || !file.name || typeof file.name !== 'string') {
+                console.warn('Skipping invalid file object:', file);
+                continue;
+            }
+            
             const filePath = path.join(installDir, file.name);
             
             let needsDownload = true;
@@ -131,7 +150,7 @@ window.checkFiles = async function() {
                     // Full scan: check MD5
                     try {
                         const md5 = await ipcRenderer.invoke('check-md5', filePath);
-                        needsDownload = md5 !== file.md5;
+                        needsDownload = !file.md5 || md5 !== file.md5;
                         
                         if (!needsDownload) {
                             completedFiles++;
@@ -159,6 +178,13 @@ window.checkFiles = async function() {
             }
             
             const file = filesToDownload[i];
+            
+            // Validate file object before download
+            if (!file || !file.name || !file.url) {
+                console.warn('Skipping invalid file for download:', file);
+                continue;
+            }
+            
             const filePath = path.join(installDir, file.name);
             
             document.getElementById('status').textContent = `Downloading ${file.name}...`;
@@ -169,7 +195,7 @@ window.checkFiles = async function() {
                     url: file.url,
                     destination: filePath,
                     expectedMd5: file.md5,
-                    size: file.size
+                    size: file.size || 0
                 });
                 
                 completedFiles++;
@@ -204,11 +230,15 @@ function updateProgress() {
 
 // Listen for download progress
 ipcRenderer.on('file-progress', (event, data) => {
-    document.getElementById('file-progress').style.width = `${data.percent}%`;
-    
-    // Calculate and show progress
-    const downloadedMB = (data.downloaded / (1024 * 1024)).toFixed(2);
-    const totalMB = (data.total / (1024 * 1024)).toFixed(2);
-    document.getElementById('status').textContent = 
-        `Downloading: ${downloadedMB}MB / ${totalMB}MB (${data.percent.toFixed(1)}%)`;
+    if (data && data.percent !== undefined) {
+        document.getElementById('file-progress').style.width = `${data.percent}%`;
+        
+        // Calculate and show progress
+        if (data.downloaded && data.total) {
+            const downloadedMB = (data.downloaded / (1024 * 1024)).toFixed(2);
+            const totalMB = (data.total / (1024 * 1024)).toFixed(2);
+            document.getElementById('status').textContent = 
+                `Downloading: ${downloadedMB}MB / ${totalMB}MB (${data.percent.toFixed(1)}%)`;
+        }
+    }
 });
