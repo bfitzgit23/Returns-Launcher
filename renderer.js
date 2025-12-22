@@ -1,82 +1,4 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
-
-let installDir = null;
-let scanMode = 'quick';
-let paused = false;
-let requiredFiles = [];
-let totalFiles = 0;
-let completedFiles = 0;
-
-// Initialize
-window.onload = async function() {
-    try {
-        installDir = await ipcRenderer.invoke('get-install-dir');
-        scanMode = await ipcRenderer.invoke('get-scan-mode');
-        
-        if (installDir) {
-            document.getElementById('current-directory').textContent = installDir;
-        }
-        
-        document.getElementById('status').textContent = 'Ready';
-        document.getElementById('total-status').textContent = '0/0 files';
-    } catch (error) {
-        console.error('Init error:', error);
-        document.getElementById('status').textContent = 'Error: ' + error.message;
-    }
-};
-
-// Global functions for HTML buttons
-window.launchGame = async function() {
-    if (!installDir) {
-        alert('Please select an install directory first!');
-        await selectInstallLocation();
-        return;
-    }
-    
-    const exePath = path.join(installDir, 'SWGEmu.exe');
-    if (fs.existsSync(exePath)) {
-        try {
-            await ipcRenderer.invoke('launch-game', exePath);
-            document.getElementById('status').textContent = 'Game launched!';
-        } catch (error) {
-            alert('Failed to launch game: ' + error.message);
-        }
-    } else {
-        alert('SWGEmu.exe not found in the selected directory!');
-    }
-};
-
-window.setScanMode = function(mode) {
-    scanMode = mode;
-    ipcRenderer.invoke('save-scan-mode', mode);
-    document.getElementById('status').textContent = `Scan mode set to ${mode} scan`;
-};
-
-window.togglePause = function() {
-    paused = !paused;
-    const pauseButton = document.querySelector('.side-button:nth-child(5)');
-    if (pauseButton) {
-        pauseButton.textContent = paused ? 'Resume' : 'Pause';
-    }
-    document.getElementById('status').textContent = paused ? 'Downloads paused' : 'Downloads resumed';
-};
-
-window.selectInstallLocation = async function() {
-    try {
-        const dir = await ipcRenderer.invoke('select-directory');
-        if (dir) {
-            installDir = dir;
-            await ipcRenderer.invoke('save-install-dir', dir);
-            document.getElementById('current-directory').textContent = dir;
-            document.getElementById('status').textContent = 'Install directory updated';
-        }
-    } catch (error) {
-        console.error('Directory selection error:', error);
-        alert('Failed to select directory: ' + error.message);
-    }
-};
+// In renderer.js, replace the entire checkFiles function:
 
 window.checkFiles = async function() {
     if (!installDir) {
@@ -98,17 +20,31 @@ window.checkFiles = async function() {
     
     try {
         // Load required files from server
+        document.getElementById('status').textContent = 'Connecting to server...';
         requiredFiles = await ipcRenderer.invoke('load-required-files');
         
         if (!Array.isArray(requiredFiles)) {
-            throw new Error('Invalid file list format');
+            throw new Error('Invalid file list format from server');
         }
         
+        console.log(`Server returned ${requiredFiles.length} files`);
+        
         // Filter out invalid entries
-        requiredFiles = requiredFiles.filter(file => {
-            return file && file.name && typeof file.name === 'string';
+        const validFiles = requiredFiles.filter(file => {
+            return file && 
+                   file.name && 
+                   typeof file.name === 'string' && 
+                   file.name.trim() !== '' &&
+                   file.url &&
+                   file.md5 &&
+                   file.size > 0;
         });
         
+        if (validFiles.length !== requiredFiles.length) {
+            console.warn(`Filtered out ${requiredFiles.length - validFiles.length} invalid entries`);
+        }
+        
+        requiredFiles = validFiles;
         totalFiles = requiredFiles.length;
         completedFiles = 0;
         
@@ -122,6 +58,7 @@ window.checkFiles = async function() {
         
         // Check existing files
         const filesToDownload = [];
+        const filesToVerify = [];
         
         for (let i = 0; i < requiredFiles.length; i++) {
             if (paused) {
@@ -130,47 +67,55 @@ window.checkFiles = async function() {
             }
             
             const file = requiredFiles[i];
-            
-            // Validate file object
-            if (!file || !file.name || typeof file.name !== 'string') {
-                console.warn('Skipping invalid file object:', file);
-                continue;
-            }
-            
             const filePath = path.join(installDir, file.name);
             
-            let needsDownload = true;
-            
+            // Check if file exists
             if (fs.existsSync(filePath)) {
                 if (scanMode === 'quick') {
-                    // Quick scan: only check if file exists
-                    needsDownload = false;
+                    // Quick scan: just check if file exists
                     completedFiles++;
                 } else {
                     // Full scan: check MD5
-                    try {
-                        const md5 = await ipcRenderer.invoke('check-md5', filePath);
-                        needsDownload = !file.md5 || md5 !== file.md5;
-                        
-                        if (!needsDownload) {
-                            completedFiles++;
-                        }
-                    } catch (error) {
-                        console.error(`Error checking MD5 for ${file.name}:`, error);
-                    }
+                    filesToVerify.push({file, filePath});
                 }
-            }
-            
-            if (needsDownload) {
+            } else {
+                // File doesn't exist, need to download
                 filesToDownload.push(file);
             }
             
-            updateProgress();
+            // Update progress every 10 files
+            if (i % 10 === 0) {
+                updateProgress();
+            }
         }
         
-        document.getElementById('status').textContent = `Found ${filesToDownload.length} files to update`;
+        // Verify MD5 for existing files (full scan only)
+        if (scanMode === 'full' && filesToVerify.length > 0) {
+            document.getElementById('status').textContent = `Verifying ${filesToVerify.length} existing files...`;
+            
+            for (const {file, filePath} of filesToVerify) {
+                try {
+                    const md5 = await ipcRenderer.invoke('check-md5', filePath);
+                    if (md5 === file.md5) {
+                        completedFiles++;
+                    } else {
+                        console.log(`MD5 mismatch for ${file.name}, adding to download list`);
+                        filesToDownload.push(file);
+                    }
+                } catch (error) {
+                    console.error(`Error verifying ${file.name}:`, error);
+                    filesToDownload.push(file);
+                }
+                
+                updateProgress();
+            }
+        }
         
-        // Download files
+        document.getElementById('status').textContent = `Found ${filesToDownload.length} files to download`;
+        
+        // Download missing or outdated files
+        let failedDownloads = [];
+        
         for (let i = 0; i < filesToDownload.length; i++) {
             if (paused) {
                 document.getElementById('status').textContent = 'Downloads paused';
@@ -178,39 +123,60 @@ window.checkFiles = async function() {
             }
             
             const file = filesToDownload[i];
-            
-            // Validate file object before download
-            if (!file || !file.name || !file.url) {
-                console.warn('Skipping invalid file for download:', file);
-                continue;
-            }
-            
             const filePath = path.join(installDir, file.name);
             
-            document.getElementById('status').textContent = `Downloading ${file.name}...`;
+            document.getElementById('status').textContent = `Downloading ${file.name} (${i+1}/${filesToDownload.length})...`;
             document.getElementById('file-progress').style.width = '0%';
             
-            try {
-                await ipcRenderer.invoke('download-file', {
-                    url: file.url,
-                    destination: filePath,
-                    expectedMd5: file.md5,
-                    size: file.size || 0
-                });
-                
-                completedFiles++;
-                updateProgress();
-                
-            } catch (error) {
-                console.error(`Failed to download ${file.name}:`, error);
-                document.getElementById('status').textContent = `Failed to download ${file.name}: ${error.message}`;
+            // Create directory if it doesn't exist
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            
+            let retries = 3;
+            let success = false;
+            
+            while (retries > 0 && !success && !paused) {
+                try {
+                    await ipcRenderer.invoke('download-file', {
+                        url: file.url,
+                        destination: filePath,
+                        expectedMd5: file.md5,
+                        size: file.size
+                    });
+                    
+                    success = true;
+                    completedFiles++;
+                    updateProgress();
+                    
+                } catch (error) {
+                    retries--;
+                    if (retries === 0) {
+                        console.error(`Failed to download ${file.name}:`, error);
+                        failedDownloads.push(file.name);
+                        document.getElementById('status').textContent = `Failed: ${file.name}`;
+                    } else {
+                        console.log(`Retrying ${file.name} (${3 - retries}/3)...`);
+                        document.getElementById('status').textContent = `Retrying ${file.name}...`;
+                    }
+                }
             }
         }
         
+        // Final status
         if (!paused) {
-            document.getElementById('status').textContent = 'All files are up to date!';
-            document.getElementById('total-progress').style.width = '100%';
-            document.getElementById('file-progress').style.width = '100%';
+            if (failedDownloads.length === 0 && completedFiles === totalFiles) {
+                document.getElementById('status').textContent = 'All files are up to date!';
+                document.getElementById('total-progress').style.width = '100%';
+                document.getElementById('file-progress').style.width = '100%';
+            } else if (failedDownloads.length > 0) {
+                document.getElementById('status').textContent = 
+                    `Completed ${completedFiles}/${totalFiles} files. Failed: ${failedDownloads.length}`;
+            } else {
+                document.getElementById('status').textContent = 
+                    `Updated ${completedFiles}/${totalFiles} files.`;
+            }
         }
         
     } catch (error) {
@@ -218,27 +184,3 @@ window.checkFiles = async function() {
         document.getElementById('status').textContent = 'Error: ' + error.message;
     }
 };
-
-// Progress tracking
-function updateProgress() {
-    if (totalFiles > 0) {
-        const totalPercent = (completedFiles / totalFiles) * 100;
-        document.getElementById('total-progress').style.width = `${totalPercent}%`;
-        document.getElementById('total-status').textContent = `${completedFiles}/${totalFiles} files`;
-    }
-}
-
-// Listen for download progress
-ipcRenderer.on('file-progress', (event, data) => {
-    if (data && data.percent !== undefined) {
-        document.getElementById('file-progress').style.width = `${data.percent}%`;
-        
-        // Calculate and show progress
-        if (data.downloaded && data.total) {
-            const downloadedMB = (data.downloaded / (1024 * 1024)).toFixed(2);
-            const totalMB = (data.total / (1024 * 1024)).toFixed(2);
-            document.getElementById('status').textContent = 
-                `Downloading: ${downloadedMB}MB / ${totalMB}MB (${data.percent.toFixed(1)}%)`;
-        }
-    }
-});
