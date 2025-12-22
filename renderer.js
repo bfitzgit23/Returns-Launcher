@@ -104,7 +104,7 @@ closeButton.addEventListener('click', () => {
     window.close();
 });
 
-// Play button - UPDATED FOR swgemu.exe
+// Play button - FIXED FOR SWGEmu.exe
 playButton.addEventListener('click', async () => {
     if (!installDir) {
         updateStatus('Please set an install location first');
@@ -114,63 +114,93 @@ playButton.addEventListener('click', async () => {
     
     // Try different possible executable names and locations
     const possibleExecutables = [
-        'swgemu.exe',
-        'SWGEmu.exe',
-        'SWGEMU.exe',
-        'swgemu/SWGEmu.exe',
-        'game/swgemu.exe',
-        'Star Wars Galaxies/swgemu.exe'
+        'SWGEmu.exe',  // Primary name
+        'swgemu.exe',  // Lowercase
+        'SWGEMU.exe',  // All caps
+        'SWGEmu/SWGEmu.exe',
+        'game/SWGEmu.exe',
+        'Star Wars Galaxies/SWGEmu.exe',
+        'SWGEmu Live/SWGEmu.exe'
     ];
     
     let exePath = null;
+    let foundExeName = '';
     
     // First, try to find the executable
     for (const exeName of possibleExecutables) {
         const testPath = path.join(installDir, exeName);
         if (fs.existsSync(testPath)) {
             exePath = testPath;
-            updateStatus(`Found executable: ${exeName}`);
+            foundExeName = exeName;
+            console.log(`Found executable: ${exeName} at ${testPath}`);
             break;
         }
     }
     
-    // If not found, check the root directory for any .exe that might be SWG
+    // If not found, search the directory for any .exe that might be SWGEmu
     if (!exePath) {
         try {
+            console.log(`Searching for executables in: ${installDir}`);
             const files = fs.readdirSync(installDir);
-            const exeFiles = files.filter(file => 
-                file.toLowerCase().endsWith('.exe') && 
-                (file.toLowerCase().includes('swg') || 
-                 file.toLowerCase().includes('starwars') ||
-                 file.toLowerCase().includes('galaxies'))
-            );
+            const exeFiles = files.filter(file => {
+                const lowerFile = file.toLowerCase();
+                return lowerFile.endsWith('.exe') && 
+                       (lowerFile.includes('swgemu') || 
+                        lowerFile.includes('swg') ||
+                        lowerFile.includes('emulator'));
+            });
             
             if (exeFiles.length > 0) {
                 exePath = path.join(installDir, exeFiles[0]);
-                updateStatus(`Found potential executable: ${exeFiles[0]}`);
+                foundExeName = exeFiles[0];
+                updateStatus(`Found executable: ${exeFiles[0]}`);
             }
         } catch (error) {
             console.error('Error scanning directory:', error);
+            updateStatus(`Error: ${error.message}`);
         }
     }
     
     if (!exePath) {
-        updateStatus('Could not find swgemu.exe. Please verify your installation.');
-        // Show a dialog to help locate the executable
-        const result = await ipcRenderer.invoke('select-file');
-        if (result) {
-            exePath = result;
+        updateStatus('Could not find SWGEmu.exe. Please verify your installation.');
+        
+        // Offer to browse for the executable
+        if (confirm('SWGEmu.exe not found. Would you like to browse for it?')) {
+            try {
+                const result = await ipcRenderer.invoke('select-file');
+                if (result) {
+                    exePath = result;
+                    foundExeName = path.basename(result);
+                } else {
+                    return;
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`);
+                return;
+            }
         } else {
             return;
         }
     }
     
     try {
-        updateStatus('Launching game...');
+        updateStatus(`Launching ${foundExeName}...`);
+        console.log(`Attempting to launch: ${exePath}`);
         await ipcRenderer.invoke('launch-game', exePath);
-        updateStatus('Game launched successfully');
+        updateStatus(`${foundExeName} launched successfully`);
     } catch (error) {
+        console.error('Launch error:', error);
         updateStatus(`Launch failed: ${error.message}`);
+        
+        // Try alternative launch method
+        try {
+            updateStatus('Trying alternative launch method...');
+            const { shell } = require('electron');
+            shell.openPath(exePath);
+            updateStatus('Alternative launch attempted');
+        } catch (altError) {
+            updateStatus(`Alternative launch also failed: ${altError.message}`);
+        }
     }
 });
 
@@ -180,12 +210,22 @@ installLocationButton.addEventListener('click', async () => {
 });
 
 async function showInstallLocationDialog() {
-    const selectedDir = await ipcRenderer.invoke('select-directory');
-    if (selectedDir) {
-        installDir = selectedDir;
-        currentDirectoryElement.textContent = installDir;
-        await ipcRenderer.invoke('save-install-dir', installDir);
-        updateStatus(`Install directory set: ${installDir}`);
+    try {
+        const selectedDir = await ipcRenderer.invoke('select-directory');
+        if (selectedDir) {
+            installDir = selectedDir;
+            currentDirectoryElement.textContent = installDir;
+            await ipcRenderer.invoke('save-install-dir', installDir);
+            updateStatus(`Install directory set: ${installDir}`);
+            
+            // Verify SWGEmu.exe exists in the new directory
+            const exePath = path.join(installDir, 'SWGEmu.exe');
+            if (!fs.existsSync(exePath)) {
+                updateStatus('Warning: SWGEmu.exe not found in selected directory');
+            }
+        }
+    } catch (error) {
+        updateStatus(`Error selecting directory: ${error.message}`);
     }
 }
 
@@ -211,10 +251,23 @@ fullScanButton.addEventListener('click', () => {
     startScan('full');
 });
 
-// Settings button
+// Settings button - FIXED TO MAKE MODAL INTERACTIVE
 settingsButton.addEventListener('click', () => {
     openSettingsModal();
 });
+
+function openSettingsModal() {
+    modalOverlay.style.display = 'block';
+    settingsModal.style.display = 'block';
+    
+    // Ensure settings are loaded when modal opens
+    loadSettings();
+}
+
+function closeSettingsModal() {
+    modalOverlay.style.display = 'none';
+    settingsModal.style.display = 'none';
+}
 
 // Pause button
 pauseButton.addEventListener('click', () => {
@@ -249,20 +302,35 @@ donateButton.addEventListener('click', () => {
     updateStatus('Opening PayPal donation page...');
 });
 
-// Settings modal functions
-function openSettingsModal() {
-    settingsModal.style.display = 'block';
-    modalOverlay.style.display = 'block';
-}
-
-function closeSettingsModal() {
-    settingsModal.style.display = 'none';
-    modalOverlay.style.display = 'none';
-}
-
+// Settings modal event listeners - FIXED
 settingsCloseButton.addEventListener('click', closeSettingsModal);
 saveSettingsButton.addEventListener('click', saveSettings);
+
+// Close modal when clicking on overlay
 modalOverlay.addEventListener('click', closeSettingsModal);
+
+// Prevent modal close when clicking inside modal
+settingsModal.addEventListener('click', (event) => {
+    event.stopPropagation();
+});
+
+// Make checkboxes clickable
+autoLaunchCheckbox.addEventListener('change', () => {
+    console.log('Auto-launch changed:', autoLaunchCheckbox.checked);
+});
+
+autoUpdateCheckbox.addEventListener('change', () => {
+    console.log('Auto-update changed:', autoUpdateCheckbox.checked);
+});
+
+minimizeToTrayCheckbox.addEventListener('change', () => {
+    console.log('Minimize to tray changed:', minimizeToTrayCheckbox.checked);
+});
+
+// Make select dropdown work
+scanModeSelect.addEventListener('change', () => {
+    console.log('Scan mode changed to:', scanModeSelect.value);
+});
 
 // Update status display
 function updateStatus(text) {
@@ -385,8 +453,8 @@ async function startScan(mode) {
         // Auto-launch if enabled
         const settings = await ipcRenderer.invoke('get-settings');
         if (settings && settings.autoLaunch && needDownloadCount === 0) {
-            // Try to find executable for auto-launch
-            const exeFiles = ['swgemu.exe', 'SWGEmu.exe', 'SWGEMU.exe'];
+            // Try to find SWGEmu.exe for auto-launch
+            const exeFiles = ['SWGEmu.exe', 'swgemu.exe', 'SWGEMU.exe'];
             let exePath = null;
             
             for (const exeName of exeFiles) {
@@ -398,8 +466,12 @@ async function startScan(mode) {
             }
             
             if (exePath) {
-                await ipcRenderer.invoke('launch-game', exePath);
-                updateStatus('Auto-launching game...');
+                try {
+                    await ipcRenderer.invoke('launch-game', exePath);
+                    updateStatus('Auto-launching game...');
+                } catch (error) {
+                    updateStatus(`Auto-launch failed: ${error.message}`);
+                }
             }
         }
         
