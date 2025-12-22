@@ -20,7 +20,10 @@
             position: relative;
         }
 
-        * { box-sizing: border-box; }
+        * { 
+            box-sizing: border-box;
+            cursor: default;
+        }
 
         .background-wrapper {
             position: fixed;
@@ -53,6 +56,12 @@
             justify-content: center;
             font-size: 24px;
             -webkit-app-region: no-drag;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .play-button:hover {
+            transform: translateY(-50%) scale(1.05);
+            border-color: #4CAF50;
         }
 
         .side-buttons {
@@ -77,11 +86,17 @@
             font-family: 'Orbitron', sans-serif;
             letter-spacing: 1px;
             transition: 0.2s ease;
+            -webkit-app-region: no-drag;
         }
 
         .side-button:hover {
             border-color: #4CAF50;
             color: #4CAF50;
+            transform: translateY(-2px);
+        }
+
+        .side-button:active {
+            transform: translateY(0);
         }
 
         .progress-container {
@@ -108,6 +123,7 @@
             height: 100%;
             width: 0%;
             background: linear-gradient(90deg,#4CAF50,#66ff66);
+            transition: width 0.3s ease;
         }
 
         .status-text {
@@ -129,6 +145,11 @@
             cursor: pointer;
             -webkit-app-region: no-drag;
             z-index: 5;
+            transition: background 0.2s;
+        }
+
+        .close-button:hover {
+            background: rgba(255,0,0,.9);
         }
 
         #current-directory {
@@ -136,6 +157,7 @@
             color: #aaa;
             word-break: break-all;
             text-align: center;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -144,30 +166,17 @@
     <div class="background-wrapper"></div>
 
     <div class="main-content">
-        <button class="close-button" onclick="window.close()">×</button>
+        <button class="close-button" id="close-button">×</button>
 
-        <div class="play-button" onclick="launchGame()">Play</div>
+        <div class="play-button" id="play-button">Play</div>
 
         <div class="side-buttons">
-            <button class="side-button" onclick="setScanMode('quick'); checkFiles();">
-                Quick Scan
-            </button>
-
-            <button class="side-button" onclick="setScanMode('full'); checkFiles();">
-                Full Scan (Recheck All)
-            </button>
-
-            <button class="side-button" onclick="selectInstallLocation()">
-                Install Location
-            </button>
+            <button class="side-button" id="quick-scan">Quick Scan</button>
+            <button class="side-button" id="full-scan">Full Scan (Recheck All)</button>
+            <button class="side-button" id="install-location">Install Location</button>
             <div id="current-directory"></div>
-
-            <button class="side-button" onclick="togglePause()">Pause</button>
-            
-            <button class="side-button"
-                onclick="window.open('https://paypal.me/fitzpatrick251', '_blank')">
-                Donate
-            </button>
+            <button class="side-button" id="pause-button">Pause</button>
+            <button class="side-button" id="donate-button">Donate</button>
         </div>
 
         <div class="progress-container">
