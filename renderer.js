@@ -1,198 +1,382 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>SWG Epic Launcher</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
+// SWG Epic Launcher - Renderer Process
+const { ipcRenderer } = require('electron');
 
-        body {
-            margin: 0;
-            padding: 0;
-            background: transparent;
-            color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            -webkit-app-region: drag;
-            user-select: none;
-            max-width: 100%;
-            overflow: hidden;
-            height: 100vh;
-            border-radius: 12px;
-            position: relative;
+// DOM Elements
+const closeButton = document.getElementById('close-button');
+const playButton = document.getElementById('play-button');
+const quickScanButton = document.getElementById('quick-scan');
+const fullScanButton = document.getElementById('full-scan');
+const installLocationButton = document.getElementById('install-location');
+const settingsButton = document.getElementById('settings-button');
+const pauseButton = document.getElementById('pause-button');
+const clearCacheButton = document.getElementById('clear-cache');
+const viewLogsButton = document.getElementById('view-logs');
+const donateButton = document.getElementById('donate-button');
+const currentDirectoryElement = document.getElementById('current-directory');
+const totalProgressBar = document.getElementById('total-progress');
+const fileProgressBar = document.getElementById('file-progress');
+const totalStatusElement = document.getElementById('total-status');
+const statusElement = document.getElementById('status');
+const downloadSpeedElement = document.getElementById('download-speed');
+
+// Settings Modal Elements
+const modalOverlay = document.getElementById('modal-overlay');
+const settingsModal = document.getElementById('settings-modal');
+const settingsCloseButton = document.getElementById('settings-close');
+const scanModeSelect = document.getElementById('scan-mode-select');
+const autoLaunchCheckbox = document.getElementById('auto-launch-checkbox');
+const autoUpdateCheckbox = document.getElementById('auto-update-checkbox');
+const minimizeToTrayCheckbox = document.getElementById('minimize-to-tray-checkbox');
+const timeoutInput = document.getElementById('timeout-input');
+const saveSettingsButton = document.getElementById('save-settings');
+
+// State
+let isScanning = false;
+let isPaused = false;
+let installDir = null;
+let downloadSpeed = 0;
+let lastDownloadUpdate = Date.now();
+let lastDownloadBytes = 0;
+
+// Initialize
+async function init() {
+    // Load saved install directory
+    installDir = await ipcRenderer.invoke('get-install-dir');
+    if (installDir) {
+        currentDirectoryElement.textContent = installDir;
+        updateStatus(`Install directory: ${installDir}`);
+    } else {
+        currentDirectoryElement.textContent = 'No install directory set';
+        updateStatus('Please set an install location');
+    }
+    
+    // Load saved settings
+    await loadSettings();
+    
+    updateStatus('Ready');
+}
+
+// Load settings from storage
+async function loadSettings() {
+    try {
+        // Load scan mode
+        const scanMode = await ipcRenderer.invoke('get-scan-mode');
+        scanModeSelect.value = scanMode || 'quick';
+        
+        // Load other settings
+        const settings = await ipcRenderer.invoke('get-settings');
+        if (settings) {
+            autoLaunchCheckbox.checked = settings.autoLaunch || false;
+            autoUpdateCheckbox.checked = settings.autoUpdate || false;
+            minimizeToTrayCheckbox.checked = settings.minimizeToTray || false;
+            timeoutInput.value = settings.timeout || 30;
         }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+}
 
-        * { 
-            box-sizing: border-box;
-            cursor: default;
+// Save settings to storage
+async function saveSettings() {
+    try {
+        const settings = {
+            scanMode: scanModeSelect.value,
+            autoLaunch: autoLaunchCheckbox.checked,
+            autoUpdate: autoUpdateCheckbox.checked,
+            minimizeToTray: minimizeToTrayCheckbox.checked,
+            timeout: parseInt(timeoutInput.value) || 30
+        };
+        
+        await ipcRenderer.invoke('save-settings', settings);
+        updateStatus('Settings saved successfully');
+        closeSettingsModal();
+    } catch (error) {
+        updateStatus(`Failed to save settings: ${error.message}`);
+    }
+}
+
+// Event Listeners
+
+// Close window
+closeButton.addEventListener('click', () => {
+    window.close();
+});
+
+// Play button
+playButton.addEventListener('click', async () => {
+    if (!installDir) {
+        updateStatus('Please set an install location first');
+        showInstallLocationDialog();
+        return;
+    }
+    
+    const exePath = require('path').join(installDir, 'SWGEmu.exe');
+    try {
+        updateStatus('Launching game...');
+        await ipcRenderer.invoke('launch-game', exePath);
+        updateStatus('Game launched successfully');
+    } catch (error) {
+        updateStatus(`Launch failed: ${error.message}`);
+    }
+});
+
+// Install location
+installLocationButton.addEventListener('click', async () => {
+    await showInstallLocationDialog();
+});
+
+async function showInstallLocationDialog() {
+    const selectedDir = await ipcRenderer.invoke('select-directory');
+    if (selectedDir) {
+        installDir = selectedDir;
+        currentDirectoryElement.textContent = installDir;
+        await ipcRenderer.invoke('save-install-dir', installDir);
+        updateStatus(`Install directory set: ${installDir}`);
+    }
+}
+
+// Quick scan
+quickScanButton.addEventListener('click', () => {
+    if (!installDir) {
+        updateStatus('Please set an install location first');
+        showInstallLocationDialog();
+        return;
+    }
+    
+    startScan('quick');
+});
+
+// Full scan
+fullScanButton.addEventListener('click', () => {
+    if (!installDir) {
+        updateStatus('Please set an install location first');
+        showInstallLocationDialog();
+        return;
+    }
+    
+    startScan('full');
+});
+
+// Settings button
+settingsButton.addEventListener('click', () => {
+    openSettingsModal();
+});
+
+// Pause button
+pauseButton.addEventListener('click', () => {
+    isPaused = !isPaused;
+    pauseButton.textContent = isPaused ? 'Resume Scan' : 'Pause Scan';
+    updateStatus(isPaused ? 'Scan paused' : 'Scan resumed');
+});
+
+// Clear cache
+clearCacheButton.addEventListener('click', async () => {
+    try {
+        await ipcRenderer.invoke('clear-cache');
+        updateStatus('Cache cleared successfully');
+    } catch (error) {
+        updateStatus(`Failed to clear cache: ${error.message}`);
+    }
+});
+
+// View logs
+viewLogsButton.addEventListener('click', async () => {
+    try {
+        await ipcRenderer.invoke('open-logs');
+        updateStatus('Opening logs...');
+    } catch (error) {
+        updateStatus(`Failed to open logs: ${error.message}`);
+    }
+});
+
+// Donate button - UPDATED TO USE PAYPAL LINK
+donateButton.addEventListener('click', () => {
+    require('electron').shell.openExternal('https://www.paypal.me/Fitzpatrick251');
+    updateStatus('Opening PayPal donation page...');
+});
+
+// Settings modal functions
+function openSettingsModal() {
+    settingsModal.style.display = 'block';
+    modalOverlay.style.display = 'block';
+}
+
+function closeSettingsModal() {
+    settingsModal.style.display = 'none';
+    modalOverlay.style.display = 'none';
+}
+
+settingsCloseButton.addEventListener('click', closeSettingsModal);
+saveSettingsButton.addEventListener('click', saveSettings);
+modalOverlay.addEventListener('click', closeSettingsModal);
+
+// Update status display
+function updateStatus(text) {
+    statusElement.textContent = text;
+    console.log(`[Status] ${text}`);
+}
+
+// Update progress bars
+function updateProgress(current, total, type = 'total') {
+    if (total === 0) return;
+    
+    const percentage = (current / total) * 100;
+    
+    if (type === 'total') {
+        totalProgressBar.style.width = `${percentage}%`;
+        totalStatusElement.textContent = `${current}/${total} files`;
+    } else {
+        fileProgressBar.style.width = `${percentage}%`;
+    }
+}
+
+// Update download speed
+function updateDownloadSpeed(bytes) {
+    const now = Date.now();
+    const timeDiff = (now - lastDownloadUpdate) / 1000; // in seconds
+    
+    if (timeDiff >= 1) {
+        const bytesDiff = bytes - lastDownloadBytes;
+        downloadSpeed = bytesDiff / timeDiff; // bytes per second
+        
+        let speedText;
+        if (downloadSpeed >= 1048576) { // 1 MB
+            speedText = `${(downloadSpeed / 1048576).toFixed(2)} MB/s`;
+        } else if (downloadSpeed >= 1024) { // 1 KB
+            speedText = `${(downloadSpeed / 1024).toFixed(2)} KB/s`;
+        } else {
+            speedText = `${downloadSpeed.toFixed(2)} B/s`;
         }
+        
+        downloadSpeedElement.textContent = `Download speed: ${speedText}`;
+        
+        lastDownloadUpdate = now;
+        lastDownloadBytes = bytes;
+    }
+}
 
-        .background-wrapper {
-            position: fixed;
-            inset: 0;
-            background: url('./img/background.png') no-repeat center center;
-            background-size: cover;
-            border-radius: 12px;
-            z-index: 1;
+// Scan function
+async function startScan(mode) {
+    if (isScanning) {
+        updateStatus('Scan already in progress');
+        return;
+    }
+    
+    isScanning = true;
+    isPaused = false;
+    pauseButton.textContent = 'Pause Scan';
+    downloadSpeed = 0;
+    lastDownloadUpdate = Date.now();
+    lastDownloadBytes = 0;
+    downloadSpeedElement.textContent = '';
+    
+    try {
+        updateStatus(`Starting ${mode} scan...`);
+        await ipcRenderer.invoke('save-scan-mode', mode);
+        
+        // Load required files from server
+        updateStatus('Loading file list from server...');
+        const files = await ipcRenderer.invoke('load-required-files');
+        updateStatus(`Found ${files.length} files to check`);
+        
+        let verifiedCount = 0;
+        let needDownloadCount = 0;
+        let errorCount = 0;
+        
+        for (let i = 0; i < files.length; i++) {
+            // Check if paused
+            if (isPaused) {
+                updateStatus('Scan paused. Click Resume to continue.');
+                while (isPaused) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                updateStatus('Resuming scan...');
+            }
+            
+            const file = files[i];
+            const localPath = require('path').join(installDir, file.name);
+            
+            updateStatus(`Checking: ${file.name}`);
+            updateProgress(i + 1, files.length, 'total');
+            
+            // Check if file exists
+            const fs = require('fs');
+            if (fs.existsSync(localPath)) {
+                try {
+                    // Check MD5
+                    const localMd5 = await ipcRenderer.invoke('check-md5', localPath);
+                    
+                    if (localMd5 === file.md5) {
+                        verifiedCount++;
+                        updateProgress(100, 100, 'file');
+                    } else {
+                        needDownloadCount++;
+                        updateStatus(`MD5 mismatch: ${file.name}`);
+                        await downloadFile(file, localPath);
+                    }
+                } catch (error) {
+                    errorCount++;
+                    needDownloadCount++;
+                    updateStatus(`Error checking ${file.name}: ${error.message}`);
+                    await downloadFile(file, localPath);
+                }
+            } else {
+                needDownloadCount++;
+                updateStatus(`Missing: ${file.name}`);
+                await downloadFile(file, localPath);
+            }
         }
-
-        .main-content {
-            position: relative;
-            z-index: 2;
-            height: 100%;
+        
+        updateStatus(`Scan complete. Verified: ${verifiedCount}, Downloaded: ${needDownloadCount}, Errors: ${errorCount}`);
+        
+        // Auto-launch if enabled
+        const settings = await ipcRenderer.invoke('get-settings');
+        if (settings && settings.autoLaunch && needDownloadCount === 0) {
+            const exePath = require('path').join(installDir, 'SWGEmu.exe');
+            await ipcRenderer.invoke('launch-game', exePath);
+            updateStatus('Auto-launching game...');
         }
+        
+    } catch (error) {
+        updateStatus(`Scan error: ${error.message}`);
+    } finally {
+        isScanning = false;
+        downloadSpeedElement.textContent = '';
+    }
+}
 
-        .play-button {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: linear-gradient(45deg, rgba(0,0,0,.8), rgba(51,51,51,.8));
-            border: 4px solid rgba(102,102,102,.5);
-            position: absolute;
-            left: 50px;
-            top: 35%;
-            transform: translateY(-50%);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            -webkit-app-region: no-drag;
-            transition: transform 0.2s, border-color 0.2s;
-        }
+// Download file with progress
+async function downloadFile(file, destination) {
+    updateStatus(`Downloading: ${file.name}`);
+    
+    try {
+        const result = await ipcRenderer.invoke('download-file', {
+            url: file.url.startsWith('http') ? file.url : `http://15.204.254.253/tre/carbonite/${file.name}`,
+            destination: destination,
+            expectedMd5: file.md5,
+            size: file.size
+        });
+        
+        updateStatus(`Downloaded: ${file.name}`);
+        return true;
+    } catch (error) {
+        updateStatus(`Download failed for ${file.name}: ${error.message}`);
+        return false;
+    }
+}
 
-        .play-button:hover {
-            transform: translateY(-50%) scale(1.05);
-            border-color: #4CAF50;
-        }
+// Listen for progress updates from main process
+ipcRenderer.on('file-progress', (event, data) => {
+    updateProgress(data.downloaded, data.total, 'file');
+    updateDownloadSpeed(data.downloaded);
+});
 
-        .side-buttons {
-            position: absolute;
-            right: 30px;
-            top: 35%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            -webkit-app-region: no-drag;
-        }
+// Listen for scan progress
+ipcRenderer.on('scan-progress', (event, data) => {
+    if (data.current && data.total) {
+        updateProgress(data.current, data.total, 'total');
+    }
+});
 
-        .side-button {
-            background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
-            border: 1px solid rgba(102,102,102,.5);
-            color: #FFD700;
-            padding: 12px 24px;
-            width: 200px;
-            cursor: pointer;
-            border-radius: 8px;
-            font-family: 'Orbitron', sans-serif;
-            letter-spacing: 1px;
-            transition: 0.2s ease;
-            -webkit-app-region: no-drag;
-        }
-
-        .side-button:hover {
-            border-color: #4CAF50;
-            color: #4CAF50;
-            transform: translateY(-2px);
-        }
-
-        .side-button:active {
-            transform: translateY(0);
-        }
-
-        .progress-container {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80%;
-            background: rgba(0,0,0,.75);
-            padding: 15px;
-            border-radius: 12px;
-            -webkit-app-region: no-drag;
-        }
-
-        .progress-bar {
-            height: 18px;
-            background: rgba(0,0,0,.7);
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 8px 0;
-        }
-
-        .progress-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg,#4CAF50,#66ff66);
-            transition: width 0.3s ease;
-        }
-
-        .status-text {
-            text-align: center;
-            font-size: 14px;
-            color: #4CAF50;
-        }
-
-        .close-button {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: rgba(255,0,0,.7);
-            border: none;
-            color: white;
-            cursor: pointer;
-            -webkit-app-region: no-drag;
-            z-index: 5;
-            transition: background 0.2s;
-        }
-
-        .close-button:hover {
-            background: rgba(255,0,0,.9);
-        }
-
-        #current-directory {
-            font-size: 12px;
-            color: #aaa;
-            word-break: break-all;
-            text-align: center;
-            margin-top: 5px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="background-wrapper"></div>
-
-    <div class="main-content">
-        <button class="close-button" id="close-button">×</button>
-
-        <div class="play-button" id="play-button">Play</div>
-
-        <div class="side-buttons">
-            <button class="side-button" id="quick-scan">Quick Scan</button>
-            <button class="side-button" id="full-scan">Full Scan (Recheck All)</button>
-            <button class="side-button" id="install-location">Install Location</button>
-            <div id="current-directory"></div>
-            <button class="side-button" id="pause-button">Pause</button>
-            <button class="side-button" id="donate-button">Donate</button>
-        </div>
-
-        <div class="progress-container">
-            <div class="progress-bar">
-                <div id="total-progress" class="progress-fill"></div>
-            </div>
-            <div id="total-status" class="status-text">0/0 files</div>
-
-            <div class="progress-bar">
-                <div id="file-progress" class="progress-fill"></div>
-            </div>
-
-            <div id="status" class="status-text">Ready</div>
-        </div>
-    </div>
-
-    <script src="renderer.js"></script>
-</body>
-</html>
+// Initialize the app
+init();
