@@ -150,12 +150,14 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
                 const percent = totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 0;
                 
                 // Send progress to renderer
-                mainWindow.webContents.send('file-progress', {
-                    downloaded: downloadedBytes,
-                    total: totalBytes,
-                    percent: percent,
-                    delta: chunk.length
-                });
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('file-progress', {
+                        downloaded: downloadedBytes,
+                        total: totalBytes,
+                        percent: percent,
+                        delta: chunk.length
+                    });
+                }
             });
 
             response.pipe(file);
@@ -216,7 +218,24 @@ ipcMain.handle('select-directory', async () => {
     return null;
 });
 
-// Launch game
+// File selection (for finding SWGEmu.exe)
+ipcMain.handle('select-file', async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        title: 'Select SWGEmu.exe',
+        filters: [
+            { name: 'Executable Files', extensions: ['exe'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+        return result.filePaths[0];
+    }
+    return null;
+});
+
+// Launch game - FIXED FOR SWGEmu.exe
 ipcMain.handle('launch-game', async (event, exePath) => {
     return new Promise((resolve, reject) => {
         if (!exePath || typeof exePath !== 'string') {
@@ -230,15 +249,42 @@ ipcMain.handle('launch-game', async (event, exePath) => {
         }
 
         try {
-            const process = require('child_process').spawn(exePath, [], {
+            console.log(`Launching game: ${exePath}`);
+            
+            // Get the directory of the executable
+            const exeDir = path.dirname(exePath);
+            const exeName = path.basename(exePath);
+            
+            // Use spawn instead of exec for better control
+            const { spawn } = require('child_process');
+            
+            // Launch the executable
+            const gameProcess = spawn(exePath, [], {
                 detached: true,
-                stdio: 'ignore'
+                stdio: 'ignore',
+                cwd: exeDir,
+                shell: false
             });
 
-            process.unref();
-            resolve();
+            // Unreference the process so it can run independently
+            gameProcess.unref();
+            
+            console.log(`Game launched with PID: ${gameProcess.pid}`);
+            
+            // Check if process started successfully
+            if (gameProcess.pid) {
+                resolve({ 
+                    success: true, 
+                    pid: gameProcess.pid,
+                    message: `${exeName} launched successfully`
+                });
+            } else {
+                reject(new Error('Failed to launch process'));
+            }
+            
         } catch (error) {
-            reject(error);
+            console.error('Launch error:', error);
+            reject(new Error(`Failed to launch game: ${error.message}`));
         }
     });
 });
@@ -247,14 +293,20 @@ ipcMain.handle('launch-game', async (event, exePath) => {
 const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
 ipcMain.handle('save-settings', (event, settings) => {
-    const settingsPath = getSettingsPath();
-    const existingSettings = fs.existsSync(settingsPath) 
-        ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
-        : {};
-    
-    const mergedSettings = { ...existingSettings, ...settings };
-    fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
-    console.log('Settings saved:', mergedSettings);
+    try {
+        const settingsPath = getSettingsPath();
+        const existingSettings = fs.existsSync(settingsPath) 
+            ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+            : {};
+        
+        const mergedSettings = { ...existingSettings, ...settings };
+        fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
+        console.log('Settings saved:', mergedSettings);
+        return { success: true };
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        return { success: false, error: error.message };
+    }
 });
 
 ipcMain.handle('get-settings', () => {
@@ -326,17 +378,31 @@ ipcMain.handle('get-scan-mode', () => {
 
 // Clear cache
 ipcMain.handle('clear-cache', async () => {
-    const cachePath = path.join(app.getPath('userData'), 'cache');
     try {
-        if (fs.existsSync(cachePath)) {
-            fs.rmSync(cachePath, { recursive: true, force: true });
-            console.log('Cache cleared');
-            return { success: true, message: 'Cache cleared successfully' };
+        // Clear various cache directories
+        const cachePaths = [
+            path.join(app.getPath('userData'), 'Cache'),
+            path.join(app.getPath('userData'), 'cache'),
+            path.join(app.getPath('userData'), 'GPUCache')
+        ];
+        
+        let cleared = false;
+        for (const cachePath of cachePaths) {
+            if (fs.existsSync(cachePath)) {
+                fs.rmSync(cachePath, { recursive: true, force: true });
+                cleared = true;
+                console.log(`Cleared cache: ${cachePath}`);
+            }
         }
-        return { success: true, message: 'Cache was already empty' };
+        
+        if (cleared) {
+            return { success: true, message: 'Cache cleared successfully' };
+        } else {
+            return { success: true, message: 'Cache was already empty' };
+        }
     } catch (error) {
         console.error('Error clearing cache:', error);
-        throw new Error(`Failed to clear cache: ${error.message}`);
+        return { success: false, error: `Failed to clear cache: ${error.message}` };
     }
 });
 
@@ -349,18 +415,19 @@ ipcMain.handle('open-logs', async () => {
             fs.mkdirSync(logPath, { recursive: true });
         }
         
-        // Create a sample log file if none exists
+        // Create a log file if none exists
         const logFile = path.join(logPath, 'launcher.log');
         if (!fs.existsSync(logFile)) {
-            fs.writeFileSync(logFile, `SWG Epic Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
+            const initialLog = `SWG Epic Launcher Log\nCreated: ${new Date().toISOString()}\n\n`;
+            fs.writeFileSync(logFile, initialLog);
         }
         
-        // Open the log file with default text editor
+        // Open the log file
         shell.openPath(logFile);
         return { success: true, message: 'Logs opened' };
     } catch (error) {
         console.error('Error opening logs:', error);
-        throw new Error(`Failed to open logs: ${error.message}`);
+        return { success: false, error: `Failed to open logs: ${error.message}` };
     }
 });
 
