@@ -1,223 +1,189 @@
-const { ipcRenderer } = require('electron');
-const fs = require('fs');
-const path = require('path');
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SWG Epic Launcher</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
 
-const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
-const MIN_PARALLEL = 2;
-const MAX_PARALLEL = 6;
-
-let installDir = null;
-let scanMode = 'quick';
-let paused = false;
-
-let requiredFiles = [];
-let queue = [];
-
-let activeWorkers = 0;
-let parallelLimit = 3;
-
-let totalFiles = 0;
-let completedFiles = 0;
-
-/* =========================
-   SPEED / ETA TRACKING
-========================= */
-
-let totalBytesDownloaded = 0;
-let speedSamples = [];
-let lastSpeedTime = Date.now();
-
-/* =========================
-   INIT
-========================= */
-
-(async () => {
-    installDir = await ipcRenderer.invoke('get-install-dir');
-    scanMode = await ipcRenderer.invoke('get-scan-mode');
-
-    if (installDir) {
-        document.getElementById('current-directory').textContent = installDir;
-    }
-
-    document.getElementById('status').textContent =
-        scanMode === 'full' ? 'Full Scan ready' : 'Quick Scan ready';
-})();
-
-/* =========================
-   UI ACTIONS
-========================= */
-
-function togglePause() {
-    paused = !paused;
-    document.getElementById('status').textContent =
-        paused ? 'Paused' : 'Resuming downloads...';
-
-    if (!paused) pumpQueue();
-}
-
-function launchSettings() {
-    scanMode = scanMode === 'full' ? 'quick' : 'full';
-    ipcRenderer.invoke('save-scan-mode', scanMode);
-    document.getElementById('status').textContent =
-        scanMode === 'full' ? 'Full Scan enabled' : 'Quick Scan enabled';
-}
-
-async function selectInstallLocation() {
-    const dir = await ipcRenderer.invoke('select-directory');
-    if (!dir) return;
-    installDir = dir;
-    await ipcRenderer.invoke('save-install-dir', dir);
-    document.getElementById('current-directory').textContent = dir;
-}
-
-/* =========================
-   MAIN ENTRY
-========================= */
-
-async function checkFiles() {
-    if (!installDir) {
-        alert('Select install directory first');
-        return;
-    }
-
-    paused = false;
-    document.getElementById('status').textContent = 'Scanning files...';
-
-    requiredFiles = await ipcRenderer.invoke('load-required-files');
-    queue = [];
-
-    for (const file of requiredFiles) {
-        const dest = path.join(installDir, file.path);
-        let needsDownload = true;
-
-        if (fs.existsSync(dest)) {
-            if (scanMode === 'quick') {
-                needsDownload = false;
-            } else {
-                const hash = await ipcRenderer.invoke('check-sha256', dest);
-                needsDownload = hash !== file.sha256;
-            }
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-app-region: drag;
+            user-select: none;
+            max-width: 100%;
+            overflow: hidden;
+            height: 100vh;
+            border-radius: 12px;
+            position: relative;
         }
 
-        if (needsDownload) queue.push(file);
-        else completedFiles++;
-    }
+        * { box-sizing: border-box; }
 
-    totalFiles = requiredFiles.length;
-    updateTotalProgress();
+        .background-wrapper {
+            position: fixed;
+            inset: 0;
+            background: url('./img/background.png') no-repeat center center;
+            background-size: cover;
+            border-radius: 12px;
+            z-index: 1;
+        }
 
-    pumpQueue();
-}
+        .main-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+        }
 
-/* =========================
-   DYNAMIC WORKER ENGINE
-========================= */
+        .play-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, rgba(0,0,0,.8), rgba(51,51,51,.8));
+            border: 4px solid rgba(102,102,102,.5);
+            position: absolute;
+            left: 50px;
+            top: 35%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            -webkit-app-region: no-drag;
+        }
 
-function pumpQueue() {
-    if (paused) return;
+        .side-buttons {
+            position: absolute;
+            right: 30px;
+            top: 35%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            -webkit-app-region: no-drag;
+        }
 
-    while (activeWorkers < parallelLimit && queue.length > 0) {
-        const file = queue.shift();
-        activeWorkers++;
-        processFile(file).finally(() => {
-            activeWorkers--;
-            adjustParallelism();
-            pumpQueue();
-        });
-    }
+        .side-button {
+            background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
+            border: 1px solid rgba(102,102,102,.5);
+            color: #FFD700;
+            padding: 12px 24px;
+            width: 200px;
+            cursor: pointer;
+            border-radius: 8px;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 1px;
+            transition: 0.2s ease;
+        }
 
-    if (completedFiles === totalFiles) {
-        document.getElementById('status').textContent = 'All files up to date';
-        document.getElementById('total-progress').style.width = '100%';
-    }
-}
+        .side-button:hover {
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
 
-async function processFile(file) {
-    const dest = path.join(installDir, file.path);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
+        .progress-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            background: rgba(0,0,0,.75);
+            padding: 15px;
+            border-radius: 12px;
+            -webkit-app-region: no-drag;
+        }
 
-    let existingSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+        .progress-bar {
+            height: 18px;
+            background: rgba(0,0,0,.7);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
 
-    await ipcRenderer.invoke('download-file', {
-        url: BASE_URL + file.path.replace(/\\/g, '/'),
-        destination: dest,
-        expectedSize: file.size,
-        resumeFrom: existingSize
-    });
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg,#4CAF50,#66ff66);
+        }
 
-    const finalHash = await ipcRenderer.invoke('check-sha256', dest);
-    if (finalHash !== file.sha256) {
-        fs.unlinkSync(dest);
-        queue.push(file); // smart retry
-        return;
-    }
+        .status-text {
+            text-align: center;
+            font-size: 14px;
+            color: #4CAF50;
+        }
 
-    completedFiles++;
-    updateTotalProgress();
-}
+        .close-button {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255,0,0,.7);
+            border: none;
+            color: white;
+            cursor: pointer;
+            -webkit-app-region: no-drag;
+            z-index: 5;
+        }
 
-/* =========================
-   DYNAMIC SCALING
-========================= */
+        #current-directory {
+            font-size: 12px;
+            color: #aaa;
+            word-break: break-all;
+            text-align: center;
+        }
+    </style>
+</head>
 
-function adjustParallelism() {
-    const avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length || 0;
+<body>
+    <div class="background-wrapper"></div>
 
-    if (avgSpeed > 1.5 * 1024 * 1024 && parallelLimit < MAX_PARALLEL) {
-        parallelLimit++;
-    } else if (avgSpeed < 300 * 1024 && parallelLimit > MIN_PARALLEL) {
-        parallelLimit--;
-    }
-}
+    <div class="main-content">
+        <button class="close-button" onclick="window.close()">×</button>
 
-/* =========================
-   PROGRESS EVENTS
-========================= */
+        <div class="play-button" onclick="launchGame()">Play</div>
 
-ipcRenderer.on('file-progress', (_, data) => {
-    const pct = Math.floor((data.downloaded / data.total) * 100);
-    document.getElementById('file-progress').style.width = pct + '%';
+        <div class="side-buttons">
+            <button class="side-button" onclick="setScanMode('quick'); checkFiles();">
+                Quick Scan
+            </button>
 
-    totalBytesDownloaded += data.delta;
-    updateSpeedAndETA(data);
-});
+            <button class="side-button" onclick="setScanMode('full'); checkFiles();">
+                Full Scan (Recheck All)
+            </button>
 
-function updateTotalProgress() {
-    const pct = Math.floor((completedFiles / totalFiles) * 100);
-    document.getElementById('total-progress').style.width = pct + '%';
-    document.getElementById('total-status').textContent =
-        `${completedFiles}/${totalFiles} files`;
-}
+            <button class="side-button" onclick="selectInstallLocation()">
+                Install Location
+            </button>
+            <div id="current-directory"></div>
 
-/* =========================
-   SPEED + ETA
-========================= */
+            <button class="side-button" onclick="togglePause()">Pause</button>
+            
+            <button class="side-button"
+                onclick="window.open('https://paypal.me/fitzpatrick251', '_blank')">
+                Donate
+            </button>
+        </div>
 
-function updateSpeedAndETA(data) {
-    const now = Date.now();
-    const deltaTime = (now - lastSpeedTime) / 1000;
-    if (deltaTime <= 0) return;
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div id="total-progress" class="progress-fill"></div>
+            </div>
+            <div id="total-status" class="status-text">0/0 files</div>
 
-    const speed = data.delta / deltaTime;
-    speedSamples.push(speed);
-    if (speedSamples.length > 6) speedSamples.shift();
+            <div class="progress-bar">
+                <div id="file-progress" class="progress-fill"></div>
+            </div>
 
-    const avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
-    document.getElementById('download-speed').textContent =
-        `${formatSpeed(avgSpeed)} | ETA ${formatETA(data.total - data.downloaded, avgSpeed)}`;
+            <div id="status" class="status-text">Ready</div>
+        </div>
+    </div>
 
-    lastSpeedTime = now;
-}
-
-function formatSpeed(bytes) {
-    if (bytes > 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB/s';
-    return (bytes / 1024).toFixed(1) + ' KB/s';
-}
-
-function formatETA(remainingBytes, speed) {
-    if (!speed || speed <= 0) return '--:--';
-    const sec = Math.floor(remainingBytes / speed);
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-}
+    <script src="renderer.js"></script>
+</body>
+</html>
