@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -244,51 +244,146 @@ ipcMain.handle('launch-game', async (event, exePath) => {
 });
 
 // Settings management
+const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+
+ipcMain.handle('save-settings', (event, settings) => {
+    const settingsPath = getSettingsPath();
+    const existingSettings = fs.existsSync(settingsPath) 
+        ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+        : {};
+    
+    const mergedSettings = { ...existingSettings, ...settings };
+    fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
+    console.log('Settings saved:', mergedSettings);
+});
+
+ipcMain.handle('get-settings', () => {
+    const settingsPath = getSettingsPath();
+    
+    if (fs.existsSync(settingsPath)) {
+        try {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            return settings;
+        } catch (error) {
+            console.error('Error reading settings:', error);
+            return {};
+        }
+    }
+    return {};
+});
+
 ipcMain.handle('save-install-dir', (event, dir) => {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settingsPath = getSettingsPath();
     const settings = fs.existsSync(settingsPath) 
         ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
         : {};
     
     settings.installDir = dir;
-    fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     console.log(`Saved install directory: ${dir}`);
 });
 
 ipcMain.handle('get-install-dir', () => {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settingsPath = getSettingsPath();
     
     if (fs.existsSync(settingsPath)) {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        return settings.installDir || null;
+        try {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            return settings.installDir || null;
+        } catch (error) {
+            console.error('Error reading install directory:', error);
+            return null;
+        }
     }
     return null;
 });
 
 ipcMain.handle('save-scan-mode', (event, mode) => {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settingsPath = getSettingsPath();
     const settings = fs.existsSync(settingsPath) 
         ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
         : {};
     
     settings.scanMode = mode;
-    fs.writeFileSync(settingsPath, JSON.stringify(settings));
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     console.log(`Saved scan mode: ${mode}`);
 });
 
 ipcMain.handle('get-scan-mode', () => {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    const settingsPath = getSettingsPath();
     
     if (fs.existsSync(settingsPath)) {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        return settings.scanMode || 'quick';
+        try {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            return settings.scanMode || 'quick';
+        } catch (error) {
+            console.error('Error reading scan mode:', error);
+            return 'quick';
+        }
     }
     return 'quick';
 });
 
+// Clear cache
+ipcMain.handle('clear-cache', async () => {
+    const cachePath = path.join(app.getPath('userData'), 'cache');
+    try {
+        if (fs.existsSync(cachePath)) {
+            fs.rmSync(cachePath, { recursive: true, force: true });
+            console.log('Cache cleared');
+            return { success: true, message: 'Cache cleared successfully' };
+        }
+        return { success: true, message: 'Cache was already empty' };
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        throw new Error(`Failed to clear cache: ${error.message}`);
+    }
+});
+
+// Open logs
+ipcMain.handle('open-logs', async () => {
+    const logPath = path.join(app.getPath('userData'), 'logs');
+    try {
+        // Create logs directory if it doesn't exist
+        if (!fs.existsSync(logPath)) {
+            fs.mkdirSync(logPath, { recursive: true });
+        }
+        
+        // Create a sample log file if none exists
+        const logFile = path.join(logPath, 'launcher.log');
+        if (!fs.existsSync(logFile)) {
+            fs.writeFileSync(logFile, `SWG Epic Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
+        }
+        
+        // Open the log file with default text editor
+        shell.openPath(logFile);
+        return { success: true, message: 'Logs opened' };
+    } catch (error) {
+        console.error('Error opening logs:', error);
+        throw new Error(`Failed to open logs: ${error.message}`);
+    }
+});
+
+// Send scan progress
+function sendScanProgress(current, total) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('scan-progress', {
+            current: current,
+            total: total,
+            percentage: total > 0 ? (current / total) * 100 : 0
+        });
+    }
+}
+
 // App lifecycle
 app.whenReady().then(() => {
     createWindow();
+    
+    // Create logs directory on startup
+    const logPath = path.join(app.getPath('userData'), 'logs');
+    if (!fs.existsSync(logPath)) {
+        fs.mkdirSync(logPath, { recursive: true });
+    }
 });
 
 app.on('window-all-closed', () => {
@@ -306,8 +401,28 @@ app.on('activate', () => {
 // Handle errors
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
+    
+    // Log error to file
+    try {
+        const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
+        const timestamp = new Date().toISOString();
+        const errorMessage = `${timestamp} - Uncaught Exception: ${error.stack || error.message}\n`;
+        fs.appendFileSync(logPath, errorMessage);
+    } catch (logError) {
+        console.error('Failed to write error log:', logError);
+    }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    
+    // Log error to file
+    try {
+        const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
+        const timestamp = new Date().toISOString();
+        const errorMessage = `${timestamp} - Unhandled Rejection: ${reason}\n`;
+        fs.appendFileSync(logPath, errorMessage);
+    } catch (logError) {
+        console.error('Failed to write error log:', logError);
+    }
 });
