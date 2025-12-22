@@ -1,5 +1,7 @@
 // SWG Epic Launcher - Renderer Process
 const { ipcRenderer } = require('electron');
+const fs = require('fs');
+const path = require('path');
 
 // DOM Elements
 const closeButton = document.getElementById('close-button');
@@ -102,7 +104,7 @@ closeButton.addEventListener('click', () => {
     window.close();
 });
 
-// Play button
+// Play button - UPDATED FOR swgemu.exe
 playButton.addEventListener('click', async () => {
     if (!installDir) {
         updateStatus('Please set an install location first');
@@ -110,7 +112,59 @@ playButton.addEventListener('click', async () => {
         return;
     }
     
-    const exePath = require('path').join(installDir, 'SWGEmu.exe');
+    // Try different possible executable names and locations
+    const possibleExecutables = [
+        'swgemu.exe',
+        'SWGEmu.exe',
+        'SWGEMU.exe',
+        'swgemu/SWGEmu.exe',
+        'game/swgemu.exe',
+        'Star Wars Galaxies/swgemu.exe'
+    ];
+    
+    let exePath = null;
+    
+    // First, try to find the executable
+    for (const exeName of possibleExecutables) {
+        const testPath = path.join(installDir, exeName);
+        if (fs.existsSync(testPath)) {
+            exePath = testPath;
+            updateStatus(`Found executable: ${exeName}`);
+            break;
+        }
+    }
+    
+    // If not found, check the root directory for any .exe that might be SWG
+    if (!exePath) {
+        try {
+            const files = fs.readdirSync(installDir);
+            const exeFiles = files.filter(file => 
+                file.toLowerCase().endsWith('.exe') && 
+                (file.toLowerCase().includes('swg') || 
+                 file.toLowerCase().includes('starwars') ||
+                 file.toLowerCase().includes('galaxies'))
+            );
+            
+            if (exeFiles.length > 0) {
+                exePath = path.join(installDir, exeFiles[0]);
+                updateStatus(`Found potential executable: ${exeFiles[0]}`);
+            }
+        } catch (error) {
+            console.error('Error scanning directory:', error);
+        }
+    }
+    
+    if (!exePath) {
+        updateStatus('Could not find swgemu.exe. Please verify your installation.');
+        // Show a dialog to help locate the executable
+        const result = await ipcRenderer.invoke('select-file');
+        if (result) {
+            exePath = result;
+        } else {
+            return;
+        }
+    }
+    
     try {
         updateStatus('Launching game...');
         await ipcRenderer.invoke('launch-game', exePath);
@@ -189,7 +243,7 @@ viewLogsButton.addEventListener('click', async () => {
     }
 });
 
-// Donate button - UPDATED TO USE PAYPAL LINK
+// Donate button
 donateButton.addEventListener('click', () => {
     require('electron').shell.openExternal('https://www.paypal.me/Fitzpatrick251');
     updateStatus('Opening PayPal donation page...');
@@ -294,13 +348,12 @@ async function startScan(mode) {
             }
             
             const file = files[i];
-            const localPath = require('path').join(installDir, file.name);
+            const localPath = path.join(installDir, file.name);
             
             updateStatus(`Checking: ${file.name}`);
             updateProgress(i + 1, files.length, 'total');
             
             // Check if file exists
-            const fs = require('fs');
             if (fs.existsSync(localPath)) {
                 try {
                     // Check MD5
@@ -332,9 +385,22 @@ async function startScan(mode) {
         // Auto-launch if enabled
         const settings = await ipcRenderer.invoke('get-settings');
         if (settings && settings.autoLaunch && needDownloadCount === 0) {
-            const exePath = require('path').join(installDir, 'SWGEmu.exe');
-            await ipcRenderer.invoke('launch-game', exePath);
-            updateStatus('Auto-launching game...');
+            // Try to find executable for auto-launch
+            const exeFiles = ['swgemu.exe', 'SWGEmu.exe', 'SWGEMU.exe'];
+            let exePath = null;
+            
+            for (const exeName of exeFiles) {
+                const testPath = path.join(installDir, exeName);
+                if (fs.existsSync(testPath)) {
+                    exePath = testPath;
+                    break;
+                }
+            }
+            
+            if (exePath) {
+                await ipcRenderer.invoke('launch-game', exePath);
+                updateStatus('Auto-launching game...');
+            }
         }
         
     } catch (error) {
