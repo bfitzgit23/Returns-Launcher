@@ -1,189 +1,214 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>SWG Epic Launcher</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
+const { ipcRenderer } = require('electron');
+const path = require('path');
+const fs = require('fs');
 
-        body {
-            margin: 0;
-            padding: 0;
-            background: transparent;
-            color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            -webkit-app-region: drag;
-            user-select: none;
-            max-width: 100%;
-            overflow: hidden;
-            height: 100vh;
-            border-radius: 12px;
-            position: relative;
+let installDir = null;
+let scanMode = 'quick';
+let paused = false;
+let requiredFiles = [];
+let totalFiles = 0;
+let completedFiles = 0;
+
+// Initialize
+window.onload = async function() {
+    try {
+        installDir = await ipcRenderer.invoke('get-install-dir');
+        scanMode = await ipcRenderer.invoke('get-scan-mode');
+        
+        if (installDir) {
+            document.getElementById('current-directory').textContent = installDir;
         }
+        
+        document.getElementById('status').textContent = 'Ready';
+        document.getElementById('total-status').textContent = '0/0 files';
+    } catch (error) {
+        console.error('Init error:', error);
+        document.getElementById('status').textContent = 'Error: ' + error.message;
+    }
+};
 
-        * { box-sizing: border-box; }
-
-        .background-wrapper {
-            position: fixed;
-            inset: 0;
-            background: url('./img/background.png') no-repeat center center;
-            background-size: cover;
-            border-radius: 12px;
-            z-index: 1;
+// Global functions for HTML buttons
+window.launchGame = async function() {
+    if (!installDir) {
+        alert('Please select an install directory first!');
+        await selectInstallLocation();
+        return;
+    }
+    
+    const exePath = path.join(installDir, 'SWGEmu.exe');
+    if (fs.existsSync(exePath)) {
+        try {
+            await ipcRenderer.invoke('launch-game', exePath);
+            document.getElementById('status').textContent = 'Game launched!';
+        } catch (error) {
+            alert('Failed to launch game: ' + error.message);
         }
+    } else {
+        alert('SWGEmu.exe not found in the selected directory!');
+    }
+};
 
-        .main-content {
-            position: relative;
-            z-index: 2;
-            height: 100%;
+window.setScanMode = function(mode) {
+    scanMode = mode;
+    ipcRenderer.invoke('save-scan-mode', mode);
+    document.getElementById('status').textContent = `Scan mode set to ${mode} scan`;
+};
+
+window.togglePause = function() {
+    paused = !paused;
+    const pauseButton = document.querySelector('.side-button:nth-child(4)');
+    pauseButton.textContent = paused ? 'Resume' : 'Pause';
+    document.getElementById('status').textContent = paused ? 'Downloads paused' : 'Downloads resumed';
+};
+
+window.selectInstallLocation = async function() {
+    try {
+        const dir = await ipcRenderer.invoke('select-directory');
+        if (dir) {
+            installDir = dir;
+            await ipcRenderer.invoke('save-install-dir', dir);
+            document.getElementById('current-directory').textContent = dir;
+            document.getElementById('status').textContent = 'Install directory updated';
         }
+    } catch (error) {
+        console.error('Directory selection error:', error);
+        alert('Failed to select directory: ' + error.message);
+    }
+};
 
-        .play-button {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: linear-gradient(45deg, rgba(0,0,0,.8), rgba(51,51,51,.8));
-            border: 4px solid rgba(102,102,102,.5);
-            position: absolute;
-            left: 50px;
-            top: 35%;
-            transform: translateY(-50%);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            -webkit-app-region: no-drag;
+window.checkFiles = async function() {
+    if (!installDir) {
+        alert('Please select an install directory first!');
+        await selectInstallLocation();
+        if (!installDir) return;
+    }
+    
+    if (!fs.existsSync(installDir)) {
+        alert('Install directory does not exist!');
+        return;
+    }
+    
+    paused = false;
+    document.getElementById('status').textContent = 'Loading file list...';
+    document.getElementById('total-progress').style.width = '0%';
+    document.getElementById('file-progress').style.width = '0%';
+    document.getElementById('total-status').textContent = '0/0 files';
+    
+    try {
+        // Load required files from server
+        requiredFiles = await ipcRenderer.invoke('load-required-files');
+        totalFiles = requiredFiles.length;
+        completedFiles = 0;
+        
+        if (totalFiles === 0) {
+            document.getElementById('status').textContent = 'No files in manifest';
+            return;
         }
-
-        .side-buttons {
-            position: absolute;
-            right: 30px;
-            top: 35%;
-            transform: translateY(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            -webkit-app-region: no-drag;
-        }
-
-        .side-button {
-            background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
-            border: 1px solid rgba(102,102,102,.5);
-            color: #FFD700;
-            padding: 12px 24px;
-            width: 200px;
-            cursor: pointer;
-            border-radius: 8px;
-            font-family: 'Orbitron', sans-serif;
-            letter-spacing: 1px;
-            transition: 0.2s ease;
-        }
-
-        .side-button:hover {
-            border-color: #4CAF50;
-            color: #4CAF50;
-        }
-
-        .progress-container {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80%;
-            background: rgba(0,0,0,.75);
-            padding: 15px;
-            border-radius: 12px;
-            -webkit-app-region: no-drag;
-        }
-
-        .progress-bar {
-            height: 18px;
-            background: rgba(0,0,0,.7);
-            border-radius: 10px;
-            overflow: hidden;
-            margin: 8px 0;
-        }
-
-        .progress-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg,#4CAF50,#66ff66);
-        }
-
-        .status-text {
-            text-align: center;
-            font-size: 14px;
-            color: #4CAF50;
-        }
-
-        .close-button {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: rgba(255,0,0,.7);
-            border: none;
-            color: white;
-            cursor: pointer;
-            -webkit-app-region: no-drag;
-            z-index: 5;
-        }
-
-        #current-directory {
-            font-size: 12px;
-            color: #aaa;
-            word-break: break-all;
-            text-align: center;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="background-wrapper"></div>
-
-    <div class="main-content">
-        <button class="close-button" onclick="window.close()">×</button>
-
-        <div class="play-button" onclick="launchGame()">Play</div>
-
-        <div class="side-buttons">
-            <button class="side-button" onclick="setScanMode('quick'); checkFiles();">
-                Quick Scan
-            </button>
-
-            <button class="side-button" onclick="setScanMode('full'); checkFiles();">
-                Full Scan (Recheck All)
-            </button>
-
-            <button class="side-button" onclick="selectInstallLocation()">
-                Install Location
-            </button>
-            <div id="current-directory"></div>
-
-            <button class="side-button" onclick="togglePause()">Pause</button>
+        
+        document.getElementById('status').textContent = `Checking ${totalFiles} files...`;
+        updateProgress();
+        
+        // Check existing files
+        const filesToDownload = [];
+        
+        for (let i = 0; i < requiredFiles.length; i++) {
+            if (paused) {
+                document.getElementById('status').textContent = 'Scan paused';
+                break;
+            }
             
-            <button class="side-button"
-                onclick="window.open('https://paypal.me/fitzpatrick251', '_blank')">
-                Donate
-            </button>
-        </div>
+            const file = requiredFiles[i];
+            const filePath = path.join(installDir, file.name);
+            
+            let needsDownload = true;
+            
+            if (fs.existsSync(filePath)) {
+                if (scanMode === 'quick') {
+                    // Quick scan: only check if file exists
+                    needsDownload = false;
+                    completedFiles++;
+                } else {
+                    // Full scan: check MD5
+                    try {
+                        const md5 = await ipcRenderer.invoke('check-md5', filePath);
+                        needsDownload = md5 !== file.md5;
+                        
+                        if (!needsDownload) {
+                            completedFiles++;
+                        }
+                    } catch (error) {
+                        console.error(`Error checking MD5 for ${file.name}:`, error);
+                    }
+                }
+            }
+            
+            if (needsDownload) {
+                filesToDownload.push(file);
+            }
+            
+            updateProgress();
+        }
+        
+        document.getElementById('status').textContent = `Found ${filesToDownload.length} files to update`;
+        
+        // Download files
+        for (let i = 0; i < filesToDownload.length; i++) {
+            if (paused) {
+                document.getElementById('status').textContent = 'Downloads paused';
+                break;
+            }
+            
+            const file = filesToDownload[i];
+            const filePath = path.join(installDir, file.name);
+            
+            document.getElementById('status').textContent = `Downloading ${file.name}...`;
+            document.getElementById('file-progress').style.width = '0%';
+            
+            try {
+                await ipcRenderer.invoke('download-file', {
+                    url: file.url,
+                    destination: filePath,
+                    expectedMd5: file.md5,
+                    size: file.size
+                });
+                
+                completedFiles++;
+                updateProgress();
+                
+            } catch (error) {
+                console.error(`Failed to download ${file.name}:`, error);
+                document.getElementById('status').textContent = `Failed to download ${file.name}: ${error.message}`;
+            }
+        }
+        
+        if (!paused) {
+            document.getElementById('status').textContent = 'All files are up to date!';
+            document.getElementById('total-progress').style.width = '100%';
+            document.getElementById('file-progress').style.width = '100%';
+        }
+        
+    } catch (error) {
+        console.error('Error in checkFiles:', error);
+        document.getElementById('status').textContent = 'Error: ' + error.message;
+    }
+};
 
-        <div class="progress-container">
-            <div class="progress-bar">
-                <div id="total-progress" class="progress-fill"></div>
-            </div>
-            <div id="total-status" class="status-text">0/0 files</div>
+// Progress tracking
+function updateProgress() {
+    if (totalFiles > 0) {
+        const totalPercent = (completedFiles / totalFiles) * 100;
+        document.getElementById('total-progress').style.width = `${totalPercent}%`;
+        document.getElementById('total-status').textContent = `${completedFiles}/${totalFiles} files`;
+    }
+}
 
-            <div class="progress-bar">
-                <div id="file-progress" class="progress-fill"></div>
-            </div>
-
-            <div id="status" class="status-text">Ready</div>
-        </div>
-    </div>
-
-    <script src="renderer.js"></script>
-</body>
-</html>
+// Listen for download progress
+ipcRenderer.on('file-progress', (event, data) => {
+    document.getElementById('file-progress').style.width = `${data.percent}%`;
+    
+    // Calculate and show progress
+    const downloadedMB = (data.downloaded / (1024 * 1024)).toFixed(2);
+    const totalMB = (data.total / (1024 * 1024)).toFixed(2);
+    document.getElementById('status').textContent = 
+        `Downloading: ${downloadedMB}MB / ${totalMB}MB (${data.percent.toFixed(1)}%)`;
+});
