@@ -48,10 +48,11 @@
     "productName": "Returns Launcher",
     "win": {
       "target": [
+          {
           "nsis",
-          "zip"
+            "arch": ["x64"]
+        }
       ],
-    },
       "icon": "build/icon.ico"
     },
     "nsis": {
@@ -63,6 +64,7 @@
    }
   }
 }
+
 
 
 
