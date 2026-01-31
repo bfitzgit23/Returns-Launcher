@@ -49,7 +49,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "nsis",
           "zip"
         }
       ],
@@ -64,6 +64,7 @@
    }
   }
 }
+
 
 
 
