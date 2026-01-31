@@ -489,7 +489,7 @@ async function downloadFile(file, destination) {
     
     try {
         const result = await ipcRenderer.invoke('download-file', {
-            url: file.url.startsWith('http') ? file.url : `http://15.204.254.253/tre/carbonite/${file.name}`,
+            url: file.url.startsWith('http') ? file.url : `http://15.204.254.253/tre/${file.name}`,
             destination: destination,
             expectedMd5: file.md5,
             size: file.size
@@ -518,3 +518,4 @@ ipcRenderer.on('scan-progress', (event, data) => {
 
 // Initialize the app
 init();
+
