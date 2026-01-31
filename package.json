@@ -32,7 +32,8 @@
   },
   "devDependencies": {
     "electron": "^27.3.11",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "@electron/rebuild": "3.7.2"
   },
   "dependencies": {
     "@electron/remote": "^2.1.2",
@@ -44,6 +45,12 @@
     "fs-extra": "^11.3.0",
     "proper-lockfile": "^4.1.2",
     "random-access-file": "^4.1.2"
+  },
+  "overrides": {
+    "@electron/rebuild": "3.7.2",
+    "glob": "^10.0.0",
+    "rimraf": "^5.0.0",
+    "uuid": "^9.0.0"
   },
   "build": {
     "appId": "com.returns.launcher",
@@ -78,11 +85,5 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
-  },
-  "overrides": {
-    "glob": "^10.0.0",
-    "rimraf": "^5.0.0",
-    "uuid": "^9.0.0"
   }
 }
-
