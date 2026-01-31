@@ -1,7 +1,7 @@
     {
-  "name": "Epic-launcher",
+  "name": "Returns-launcher",
   "version": "1.1.0",
-  "description": "Epic-launcher",
+  "description": "Returns-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,7 +10,7 @@
     "build-linux": "electron-builder --linux --x64",
     "build-mac": "electron-builder --mac --x64"
   },
-  "repository": "https://github.com/bfitzgit23/Epic-Launcher",
+  "repository": "https://github.com/bfitzgit23/Returns-Launcher",
   "homepage": "https://swgreturns.github.io",
   "keywords": [
     "hunted",
@@ -24,7 +24,7 @@
     "emu",
     "swgemu"
   ],
-  "author": "Epic_Dev",
+  "author": "Returns_Dev",
   "license": "CC0-1.0",
   "devDependencies": {
     "electron": "^25.2.0",
@@ -43,8 +43,8 @@
     "request": "^2.88.2"
   },
  "build": {
-    "appId": "com.Epic.launcher",
-    "productName": "Epic Launcher",
+    "appId": "com.Returns.launcher",
+    "productName": "Returns Launcher",
     "win": {
       "target": [
         {
@@ -62,3 +62,4 @@
    }
   }
 }
+
