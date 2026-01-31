@@ -50,7 +50,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "zip"
         }
       ],
       "icon": "build/icon.ico"
@@ -59,9 +59,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "perMachine": false,
    }
   }
 }
+
 
 
