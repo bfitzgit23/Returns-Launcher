@@ -48,9 +48,9 @@
     "productName": "Returns Launcher",
     "win": {
       "target": [
-          {
-          "nsis",
-            "arch": ["x64"]
+        {
+          "target": "nsis",
+          "arch": ["x64"]
         }
       ],
       "icon": "build/icon.ico"
@@ -59,14 +59,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "perMachine": false,
+      "createStartMenuShortcut": true
    }
   }
 }
-
-
-
-
-
 
