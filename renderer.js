@@ -1,16 +1,14 @@
-// SWG Returns Launcher - Renderer Process
-const { ipcRenderer, webFrame } = require('electron');
+// renderer.js - SWG Returns Launcher (Renderer Process)
+
+const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
-// Hard lock zoom to 100% in renderer too (prevents persistent zoom issues)
-try {
-  webFrame.setZoomFactor(1);
-  webFrame.setVisualZoomLevelLimits(1, 1);
-} catch (_) {}
-
 // DOM Elements
 const closeButton = document.getElementById('close-button');
+const minimizeButton = document.getElementById('minimize-button');
+const maximizeButton = document.getElementById('maximize-button');
+
 const playButton = document.getElementById('play-button');
 const quickScanButton = document.getElementById('quick-scan');
 const fullScanButton = document.getElementById('full-scan');
@@ -20,6 +18,7 @@ const pauseButton = document.getElementById('pause-button');
 const clearCacheButton = document.getElementById('clear-cache');
 const viewLogsButton = document.getElementById('view-logs');
 const donateButton = document.getElementById('donate-button');
+
 const currentDirectoryElement = document.getElementById('current-directory');
 const totalProgressBar = document.getElementById('total-progress');
 const fileProgressBar = document.getElementById('file-progress');
@@ -46,23 +45,60 @@ let downloadSpeed = 0;
 let lastDownloadUpdate = Date.now();
 let lastDownloadBytes = 0;
 
-// Initialize
-async function init() {
-  installDir = await ipcRenderer.invoke('get-install-dir');
-
-  if (installDir) {
-    currentDirectoryElement.textContent = installDir;
-    updateStatus(`Install directory: ${installDir}`);
-  } else {
-    currentDirectoryElement.textContent = 'No install directory set';
-    updateStatus('Please set an install location');
-  }
-
-  await loadSettings();
-  updateStatus('Ready');
+// ------------------------------
+// Helpers
+// ------------------------------
+function updateStatus(text) {
+  statusElement.textContent = text;
+  console.log(`[Status] ${text}`);
 }
 
-// Load settings from storage
+function updateProgress(current, total, type = 'total') {
+  if (!total || total <= 0) return;
+  const percentage = (current / total) * 100;
+
+  if (type === 'total') {
+    totalProgressBar.style.width = `${percentage}%`;
+    totalStatusElement.textContent = `${current}/${total} files`;
+  } else {
+    fileProgressBar.style.width = `${percentage}%`;
+  }
+}
+
+function updateDownloadSpeed(bytes) {
+  const now = Date.now();
+  const timeDiff = (now - lastDownloadUpdate) / 1000;
+
+  if (timeDiff >= 1) {
+    const bytesDiff = bytes - lastDownloadBytes;
+    downloadSpeed = bytesDiff / timeDiff;
+
+    let speedText;
+    if (downloadSpeed >= 1048576) speedText = `${(downloadSpeed / 1048576).toFixed(2)} MB/s`;
+    else if (downloadSpeed >= 1024) speedText = `${(downloadSpeed / 1024).toFixed(2)} KB/s`;
+    else speedText = `${downloadSpeed.toFixed(2)} B/s`;
+
+    downloadSpeedElement.textContent = `Download speed: ${speedText}`;
+
+    lastDownloadUpdate = now;
+    lastDownloadBytes = bytes;
+  }
+}
+
+// ------------------------------
+// Settings Modal
+// ------------------------------
+function openSettingsModal() {
+  modalOverlay.style.display = 'block';
+  settingsModal.style.display = 'block';
+  loadSettings();
+}
+
+function closeSettingsModal() {
+  modalOverlay.style.display = 'none';
+  settingsModal.style.display = 'none';
+}
+
 async function loadSettings() {
   try {
     const scanMode = await ipcRenderer.invoke('get-scan-mode');
@@ -80,7 +116,6 @@ async function loadSettings() {
   }
 }
 
-// Save settings to storage
 async function saveSettings() {
   try {
     const settings = {
@@ -88,7 +123,7 @@ async function saveSettings() {
       autoLaunch: autoLaunchCheckbox.checked,
       autoUpdate: autoUpdateCheckbox.checked,
       minimizeToTray: minimizeToTrayCheckbox.checked,
-      timeout: parseInt(timeoutInput.value) || 30
+      timeout: parseInt(timeoutInput.value, 10) || 30
     };
 
     await ipcRenderer.invoke('save-settings', settings);
@@ -99,14 +134,61 @@ async function saveSettings() {
   }
 }
 
-// Close window
-closeButton.addEventListener('click', () => window.close());
+// ------------------------------
+// Window Controls
+// ------------------------------
+async function refreshMaximizeIcon() {
+  try {
+    const isMax = await ipcRenderer.invoke('window:isMaximized');
+    maximizeButton.textContent = isMax ? '❐' : '▢';
+  } catch (_) {}
+}
 
+closeButton.addEventListener('click', async () => {
+  await ipcRenderer.invoke('window:close');
+});
+
+minimizeButton.addEventListener('click', async () => {
+  await ipcRenderer.invoke('window:minimize');
+});
+
+maximizeButton.addEventListener('click', async () => {
+  await ipcRenderer.invoke('window:maximizeToggle');
+  await refreshMaximizeIcon();
+});
+
+// Also allow F11 in renderer (main handles it too; this is just extra)
+window.addEventListener('keydown', async (e) => {
+  if (e.key === 'F11') {
+    e.preventDefault();
+    await ipcRenderer.invoke('window:toggleFullscreen');
+  }
+});
+
+// ------------------------------
+// Install Directory
+// ------------------------------
+async function showInstallLocationDialog() {
+  try {
+    const selectedDir = await ipcRenderer.invoke('select-directory');
+    if (selectedDir) {
+      installDir = selectedDir;
+      currentDirectoryElement.textContent = installDir;
+      await ipcRenderer.invoke('save-install-dir', installDir);
+      updateStatus(`Install directory set: ${installDir}`);
+    }
+  } catch (error) {
+    updateStatus(`Error selecting directory: ${error.message}`);
+  }
+}
+
+// ------------------------------
 // Play button
+// ------------------------------
 playButton.addEventListener('click', async () => {
   if (!installDir) {
     updateStatus('Please set an install location first');
-    showInstallLocationDialog();
+    await showInstallLocationDialog();
     return;
   }
 
@@ -133,37 +215,34 @@ playButton.addEventListener('click', async () => {
   }
 
   if (!exePath) {
+    // Attempt to find any matching exe in root
     try {
       const files = fs.readdirSync(installDir);
       const exeFiles = files.filter((file) => {
-        const lf = file.toLowerCase();
-        return lf.endsWith('.exe') && (lf.includes('swgemu') || lf.includes('swg') || lf.includes('emulator'));
+        const lower = file.toLowerCase();
+        return lower.endsWith('.exe') && (lower.includes('swgemu') || lower.includes('swg') || lower.includes('emulator'));
       });
 
       if (exeFiles.length > 0) {
         exePath = path.join(installDir, exeFiles[0]);
         foundExeName = exeFiles[0];
       }
-    } catch (error) {
-      console.error('Error scanning directory:', error);
-      updateStatus(`Error: ${error.message}`);
-    }
+    } catch (_) {}
   }
 
   if (!exePath) {
     updateStatus('Could not find SWGEmu.exe. Please verify your installation.');
 
-    if (confirm('SWGEmu.exe not found. Would you like to browse for it?')) {
-      try {
-        const result = await ipcRenderer.invoke('select-file');
-        if (!result) return;
-        exePath = result;
-        foundExeName = path.basename(result);
-      } catch (error) {
-        updateStatus(`Error: ${error.message}`);
-        return;
-      }
-    } else {
+    const ok = confirm('SWGEmu.exe not found. Would you like to browse for it?');
+    if (!ok) return;
+
+    try {
+      const result = await ipcRenderer.invoke('select-file');
+      if (!result) return;
+      exePath = result;
+      foundExeName = path.basename(result);
+    } catch (error) {
+      updateStatus(`Error: ${error.message}`);
       return;
     }
   }
@@ -173,10 +252,7 @@ playButton.addEventListener('click', async () => {
     await ipcRenderer.invoke('launch-game', exePath);
     updateStatus(`${foundExeName} launched successfully`);
   } catch (error) {
-    console.error('Launch error:', error);
     updateStatus(`Launch failed: ${error.message}`);
-
-    // fallback
     try {
       const { shell } = require('electron');
       shell.openPath(exePath);
@@ -187,31 +263,13 @@ playButton.addEventListener('click', async () => {
   }
 });
 
-// Install location
+// ------------------------------
+// Buttons
+// ------------------------------
 installLocationButton.addEventListener('click', async () => {
   await showInstallLocationDialog();
 });
 
-async function showInstallLocationDialog() {
-  try {
-    const selectedDir = await ipcRenderer.invoke('select-directory');
-    if (selectedDir) {
-      installDir = selectedDir;
-      currentDirectoryElement.textContent = installDir;
-      await ipcRenderer.invoke('save-install-dir', installDir);
-      updateStatus(`Install directory set: ${installDir}`);
-
-      const exePath = path.join(installDir, 'SWGEmu.exe');
-      if (!fs.existsSync(exePath)) {
-        updateStatus('Warning: SWGEmu.exe not found in selected directory');
-      }
-    }
-  } catch (error) {
-    updateStatus(`Error selecting directory: ${error.message}`);
-  }
-}
-
-// Quick scan
 quickScanButton.addEventListener('click', () => {
   if (!installDir) {
     updateStatus('Please set an install location first');
@@ -221,7 +279,6 @@ quickScanButton.addEventListener('click', () => {
   startScan('quick');
 });
 
-// Full scan
 fullScanButton.addEventListener('click', () => {
   if (!installDir) {
     updateStatus('Please set an install location first');
@@ -231,43 +288,27 @@ fullScanButton.addEventListener('click', () => {
   startScan('full');
 });
 
-// Settings modal
-settingsButton.addEventListener('click', () => openSettingsModal());
-
-function openSettingsModal() {
-  modalOverlay.style.display = 'block';
-  settingsModal.style.display = 'block';
-  loadSettings();
-}
-
-function closeSettingsModal() {
-  modalOverlay.style.display = 'none';
-  settingsModal.style.display = 'none';
-}
-
+settingsButton.addEventListener('click', openSettingsModal);
 settingsCloseButton.addEventListener('click', closeSettingsModal);
 saveSettingsButton.addEventListener('click', saveSettings);
 modalOverlay.addEventListener('click', closeSettingsModal);
-settingsModal.addEventListener('click', (event) => event.stopPropagation());
+settingsModal.addEventListener('click', (e) => e.stopPropagation());
 
-// Pause button
 pauseButton.addEventListener('click', () => {
   isPaused = !isPaused;
-  pauseButton.textContent = isPaused ? 'Resume Scan' : 'Pause Scan';
+  pauseButton.textContent = isPaused ? 'RESUME SCAN' : 'PAUSE SCAN';
   updateStatus(isPaused ? 'Scan paused' : 'Scan resumed');
 });
 
-// Clear cache
 clearCacheButton.addEventListener('click', async () => {
   try {
     await ipcRenderer.invoke('clear-cache');
-    updateStatus('Cache cleared successfully');
+    updateStatus('Cache cleared');
   } catch (error) {
     updateStatus(`Failed to clear cache: ${error.message}`);
   }
 });
 
-// View logs
 viewLogsButton.addEventListener('click', async () => {
   try {
     await ipcRenderer.invoke('open-logs');
@@ -277,52 +318,14 @@ viewLogsButton.addEventListener('click', async () => {
   }
 });
 
-// Donate
 donateButton.addEventListener('click', () => {
   require('electron').shell.openExternal('https://www.paypal.me/Fitzpatrick251');
   updateStatus('Opening PayPal donation page...');
 });
 
-// Update status display
-function updateStatus(text) {
-  statusElement.textContent = text;
-  console.log(`[Status] ${text}`);
-}
-
-// Update progress bars
-function updateProgress(current, total, type = 'total') {
-  if (!total) return;
-  const percentage = (current / total) * 100;
-
-  if (type === 'total') {
-    totalProgressBar.style.width = `${percentage}%`;
-    totalStatusElement.textContent = `${current}/${total} files`;
-  } else {
-    fileProgressBar.style.width = `${percentage}%`;
-  }
-}
-
-// Update download speed
-function updateDownloadSpeed(bytes) {
-  const now = Date.now();
-  const timeDiff = (now - lastDownloadUpdate) / 1000;
-
-  if (timeDiff >= 1) {
-    const bytesDiff = bytes - lastDownloadBytes;
-    downloadSpeed = bytesDiff / timeDiff;
-
-    let speedText;
-    if (downloadSpeed >= 1048576) speedText = `${(downloadSpeed / 1048576).toFixed(2)} MB/s`;
-    else if (downloadSpeed >= 1024) speedText = `${(downloadSpeed / 1024).toFixed(2)} KB/s`;
-    else speedText = `${downloadSpeed.toFixed(2)} B/s`;
-
-    downloadSpeedElement.textContent = `Download speed: ${speedText}`;
-    lastDownloadUpdate = now;
-    lastDownloadBytes = bytes;
-  }
-}
-
-// Scan function
+// ------------------------------
+// Scan / Download
+// ------------------------------
 async function startScan(mode) {
   if (isScanning) {
     updateStatus('Scan already in progress');
@@ -331,7 +334,7 @@ async function startScan(mode) {
 
   isScanning = true;
   isPaused = false;
-  pauseButton.textContent = 'Pause Scan';
+  pauseButton.textContent = 'PAUSE SCAN';
   downloadSpeed = 0;
   lastDownloadUpdate = Date.now();
   lastDownloadBytes = 0;
@@ -343,16 +346,19 @@ async function startScan(mode) {
 
     updateStatus('Loading file list from server...');
     const files = await ipcRenderer.invoke('load-required-files');
+
     updateStatus(`Found ${files.length} files to check`);
 
     let verifiedCount = 0;
-    let needDownloadCount = 0;
+    let downloadedCount = 0;
     let errorCount = 0;
 
     for (let i = 0; i < files.length; i++) {
       if (isPaused) {
         updateStatus('Scan paused. Click Resume to continue.');
-        while (isPaused) await new Promise((r) => setTimeout(r, 100));
+        while (isPaused) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
         updateStatus('Resuming scan...');
       }
 
@@ -369,41 +375,36 @@ async function startScan(mode) {
             verifiedCount++;
             updateProgress(100, 100, 'file');
           } else {
-            needDownloadCount++;
+            downloadedCount++;
             await downloadFile(file, localPath);
           }
-        } catch (error) {
+        } catch (err) {
           errorCount++;
-          needDownloadCount++;
+          downloadedCount++;
           await downloadFile(file, localPath);
         }
       } else {
-        needDownloadCount++;
+        downloadedCount++;
         await downloadFile(file, localPath);
       }
     }
 
-    updateStatus(`Scan complete. Verified: ${verifiedCount}, Downloaded: ${needDownloadCount}, Errors: ${errorCount}`);
+    updateStatus(`Scan complete. Verified: ${verifiedCount}, Downloaded: ${downloadedCount}, Errors: ${errorCount}`);
 
     const settings = await ipcRenderer.invoke('get-settings');
-    if (settings && settings.autoLaunch && needDownloadCount === 0) {
-      const exeFiles = ['SWGEmu.exe', 'swgemu.exe', 'SWGEMU.exe'];
+    if (settings && settings.autoLaunch && downloadedCount === 0) {
+      const exeCandidates = ['SWGEmu.exe', 'swgemu.exe', 'SWGEMU.exe'];
       let exePath = null;
-
-      for (const exeName of exeFiles) {
-        const testPath = path.join(installDir, exeName);
-        if (fs.existsSync(testPath)) {
-          exePath = testPath;
-          break;
-        }
+      for (const exe of exeCandidates) {
+        const p = path.join(installDir, exe);
+        if (fs.existsSync(p)) { exePath = p; break; }
       }
-
       if (exePath) {
         try {
           await ipcRenderer.invoke('launch-game', exePath);
           updateStatus('Auto-launching game...');
-        } catch (error) {
-          updateStatus(`Auto-launch failed: ${error.message}`);
+        } catch (e) {
+          updateStatus(`Auto-launch failed: ${e.message}`);
         }
       }
     }
@@ -415,17 +416,13 @@ async function startScan(mode) {
   }
 }
 
-// Download file with progress
 async function downloadFile(file, destination) {
   updateStatus(`Downloading: ${file.name}`);
 
   try {
-    // IMPORTANT: do NOT hardcode a different IP here; use file.url or let server provide absolute urls.
-    const url = file.url && file.url.startsWith('http')
+    const url = (file.url && file.url.startsWith('http'))
       ? file.url
-      : null;
-
-    if (!url) throw new Error('Missing file.url from required-files.json');
+      : `http://15.204.254.253/tre/${file.name}`;
 
     await ipcRenderer.invoke('download-file', {
       url,
@@ -442,15 +439,30 @@ async function downloadFile(file, destination) {
   }
 }
 
-// Listen for progress updates
+// Progress updates from main
 ipcRenderer.on('file-progress', (event, data) => {
   updateProgress(data.downloaded, data.total, 'file');
   updateDownloadSpeed(data.downloaded);
 });
 
-ipcRenderer.on('scan-progress', (event, data) => {
-  if (data.current && data.total) updateProgress(data.current, data.total, 'total');
-});
-
+// ------------------------------
 // Init
+// ------------------------------
+async function init() {
+  installDir = await ipcRenderer.invoke('get-install-dir');
+
+  if (installDir) {
+    currentDirectoryElement.textContent = installDir;
+    updateStatus(`Install directory: ${installDir}`);
+  } else {
+    currentDirectoryElement.textContent = 'No install directory set';
+    updateStatus('Please set an install location');
+  }
+
+  await loadSettings();
+  await refreshMaximizeIcon();
+
+  updateStatus('Ready');
+}
+
 init();
