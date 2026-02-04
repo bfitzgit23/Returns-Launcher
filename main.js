@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+// main.js - SWG Returns Launcher (1920x1080 + DPI/Zoom lock + sane sizing)
+
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -15,14 +17,17 @@ const BASE_URL = 'http://144.217.255.58/tre/';
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    // Designed for 1920x1080 background/UI
     width: 1920,
     height: 1080,
     useContentSize: true,
 
     frame: false,
     transparent: true,
-    resizable: false,
+
+    // Allow resize (important for smaller screens), but enforce minimum
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
 
     backgroundColor: '#00000000',
     hasShadow: false,
@@ -31,8 +36,14 @@ function createWindow() {
       nodeIntegration: true,
       contextIsolation: false,
       enableRemoteModule: false
-    }
+    },
+
+    // Only show after we force correct size
+    show: false
   });
+
+  // Minimum usable size so it never becomes "phone portrait" tiny
+  mainWindow.setMinimumSize(1280, 720);
 
   mainWindow.loadFile('index.html');
 
@@ -45,14 +56,36 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    // Block ctrl zoom and also trackpad pinch (ctrl+wheel)
     if (input.control && (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0')) {
       event.preventDefault();
     }
   });
 
-  // Optional: center the window
-  mainWindow.center();
+  // Force a sane starting size every time (and fit on smaller displays)
+  mainWindow.once('ready-to-show', () => {
+    try {
+      const display = screen.getPrimaryDisplay();
+      const work = display.workAreaSize;
+
+      const target = (work.width >= 1920 && work.height >= 1080)
+        ? { w: 1920, h: 1080 }
+        : { w: 1280, h: 720 };
+
+      mainWindow.setContentSize(target.w, target.h);
+      mainWindow.center();
+      mainWindow.show();
+
+      // Extra guard against weird WM restores
+      const [cw, ch] = mainWindow.getContentSize();
+      if (cw < 1000 || ch < 600) {
+        mainWindow.setContentSize(1280, 720);
+        mainWindow.center();
+      }
+    } catch (e) {
+      // If something goes wrong, at least show the window
+      mainWindow.show();
+    }
+  });
 
   // mainWindow.webContents.openDevTools();
 }
@@ -162,9 +195,14 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
     const req = http.get(url, (response) => {
       // Handle redirects
       if (response.statusCode === 301 || response.statusCode === 302) {
-        http.get(response.headers.location, (redirectResponse) => {
+        const redirectUrl = response.headers.location;
+        if (!redirectUrl) {
+          reject(new Error('Redirect with no location header'));
+          return;
+        }
+        http.get(redirectUrl, (redirectResponse) => {
           redirectResponse.pipe(file);
-        });
+        }).on('error', reject);
         return;
       }
 
@@ -183,7 +221,7 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
           mainWindow.webContents.send('file-progress', {
             downloaded: downloadedBytes,
             total: totalBytes,
-            percent: percent,
+            percent,
             delta: chunk.length
           });
         }
@@ -205,7 +243,7 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
             const downloadedMd5 = hash.digest('hex');
 
             if (downloadedMd5 !== expectedMd5) {
-              fs.unlinkSync(destination);
+              try { fs.unlinkSync(destination); } catch (_) {}
               reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
             } else {
               resolve({ path: destination, md5: downloadedMd5 });
