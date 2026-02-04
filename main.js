@@ -194,4 +194,296 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
       file.on('finish', () => {
         file.close();
         const elapsedTime = (Date.now() - startTime) / 1000;
-        consol
+        console.log(`Download completed in ${elapsedTime.toFixed(2)}s: ${destination}`);
+
+        if (expectedMd5) {
+          const hash = crypto.createHash('md5');
+          const readStream = fs.createReadStream(destination);
+
+          readStream.on('data', (data) => hash.update(data));
+          readStream.on('end', () => {
+            const downloadedMd5 = hash.digest('hex');
+
+            if (downloadedMd5 !== expectedMd5) {
+              fs.unlinkSync(destination);
+              reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
+            } else {
+              resolve({ path: destination, md5: downloadedMd5 });
+            }
+          });
+          readStream.on('error', reject);
+        } else {
+          resolve({ path: destination });
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      console.error(`Download error for ${url}:`, error);
+      if (fs.existsSync(destination)) fs.unlink(destination, () => {});
+      reject(error);
+    });
+
+    req.setTimeout(30000, () => {
+      req.destroy();
+      reject(new Error('Download timeout after 30 seconds'));
+    });
+  });
+});
+
+// ------------------------------
+// Directory selection
+// ------------------------------
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    title: 'Select SWG Installation Directory'
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
+// ------------------------------
+// File selection
+// ------------------------------
+ipcMain.handle('select-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: 'Select SWGEmu.exe',
+    filters: [
+      { name: 'Executable Files', extensions: ['exe'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  return null;
+});
+
+// ------------------------------
+// Launch game
+// ------------------------------
+ipcMain.handle('launch-game', async (event, exePath) => {
+  return new Promise((resolve, reject) => {
+    if (!exePath || typeof exePath !== 'string') {
+      reject(new Error('Invalid executable path'));
+      return;
+    }
+
+    if (!fs.existsSync(exePath)) {
+      reject(new Error('Executable not found: ' + exePath));
+      return;
+    }
+
+    try {
+      console.log(`Launching game: ${exePath}`);
+
+      const exeDir = path.dirname(exePath);
+      const exeName = path.basename(exePath);
+      const { spawn } = require('child_process');
+
+      const gameProcess = spawn(exePath, [], {
+        detached: true,
+        stdio: 'ignore',
+        cwd: exeDir,
+        shell: false
+      });
+
+      gameProcess.unref();
+
+      if (gameProcess.pid) {
+        resolve({
+          success: true,
+          pid: gameProcess.pid,
+          message: `${exeName} launched successfully`
+        });
+      } else {
+        reject(new Error('Failed to launch process'));
+      }
+    } catch (error) {
+      console.error('Launch error:', error);
+      reject(new Error(`Failed to launch game: ${error.message}`));
+    }
+  });
+});
+
+// ------------------------------
+// Settings management
+// ------------------------------
+const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+
+ipcMain.handle('save-settings', (event, settings) => {
+  try {
+    const settingsPath = getSettingsPath();
+    const existingSettings = fs.existsSync(settingsPath)
+      ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+      : {};
+
+    const mergedSettings = { ...existingSettings, ...settings };
+    fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
+    console.log('Settings saved:', mergedSettings);
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-settings', () => {
+  const settingsPath = getSettingsPath();
+
+  if (fs.existsSync(settingsPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    } catch (error) {
+      console.error('Error reading settings:', error);
+      return {};
+    }
+  }
+  return {};
+});
+
+ipcMain.handle('save-install-dir', (event, dir) => {
+  const settingsPath = getSettingsPath();
+  const settings = fs.existsSync(settingsPath)
+    ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+    : {};
+  settings.installDir = dir;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  console.log(`Saved install directory: ${dir}`);
+});
+
+ipcMain.handle('get-install-dir', () => {
+  const settingsPath = getSettingsPath();
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      return settings.installDir || null;
+    } catch (error) {
+      console.error('Error reading install directory:', error);
+      return null;
+    }
+  }
+  return null;
+});
+
+ipcMain.handle('save-scan-mode', (event, mode) => {
+  const settingsPath = getSettingsPath();
+  const settings = fs.existsSync(settingsPath)
+    ? JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+    : {};
+  settings.scanMode = mode;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  console.log(`Saved scan mode: ${mode}`);
+});
+
+ipcMain.handle('get-scan-mode', () => {
+  const settingsPath = getSettingsPath();
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      return settings.scanMode || 'quick';
+    } catch (error) {
+      console.error('Error reading scan mode:', error);
+      return 'quick';
+    }
+  }
+  return 'quick';
+});
+
+// ------------------------------
+// Clear cache
+// ------------------------------
+ipcMain.handle('clear-cache', async () => {
+  try {
+    const cachePaths = [
+      path.join(app.getPath('userData'), 'Cache'),
+      path.join(app.getPath('userData'), 'cache'),
+      path.join(app.getPath('userData'), 'GPUCache')
+    ];
+
+    let cleared = false;
+    for (const cachePath of cachePaths) {
+      if (fs.existsSync(cachePath)) {
+        fs.rmSync(cachePath, { recursive: true, force: true });
+        cleared = true;
+        console.log(`Cleared cache: ${cachePath}`);
+      }
+    }
+
+    return { success: true, message: cleared ? 'Cache cleared successfully' : 'Cache was already empty' };
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    return { success: false, error: `Failed to clear cache: ${error.message}` };
+  }
+});
+
+// ------------------------------
+// Open logs
+// ------------------------------
+ipcMain.handle('open-logs', async () => {
+  const logPath = path.join(app.getPath('userData'), 'logs');
+  try {
+    if (!fs.existsSync(logPath)) fs.mkdirSync(logPath, { recursive: true });
+
+    const logFile = path.join(logPath, 'launcher.log');
+    if (!fs.existsSync(logFile)) {
+      const initialLog = `SWG Returns Launcher Log\nCreated: ${new Date().toISOString()}\n\n`;
+      fs.writeFileSync(logFile, initialLog);
+    }
+
+    shell.openPath(logFile);
+    return { success: true, message: 'Logs opened' };
+  } catch (error) {
+    console.error('Error opening logs:', error);
+    return { success: false, error: `Failed to open logs: ${error.message}` };
+  }
+});
+
+// ------------------------------
+// App lifecycle
+// ------------------------------
+app.whenReady().then(() => {
+  createWindow();
+
+  const logPath = path.join(app.getPath('userData'), 'logs');
+  if (!fs.existsSync(logPath)) fs.mkdirSync(logPath, { recursive: true });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// ------------------------------
+// Handle errors
+// ------------------------------
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  try {
+    const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logPath, `${timestamp} - Uncaught Exception: ${error.stack || error.message}\n`);
+  } catch (logError) {
+    console.error('Failed to write error log:', logError);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  try {
+    const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logPath, `${timestamp} - Unhandled Rejection: ${reason}\n`);
+  } catch (logError) {
+    console.error('Failed to write error log:', logError);
+  }
+});
