@@ -8,8 +8,8 @@
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
 
     :root {
-      --w: 1920px;
-      --h: 1080px;
+      --design-w: 1920;
+      --design-h: 1080;
       --radius: 12px;
       --gold: #FFD700;
       --green: #4CAF50;
@@ -25,12 +25,12 @@
       user-select: none;
     }
 
-    /* Make the whole window draggable by default */
+    /* whole window draggable by default */
     body { -webkit-app-region: drag; }
 
     * { box-sizing: border-box; cursor: default; }
 
-    /* Center a fixed 1920x1080 stage so nothing gets "scaled wrong" */
+    /* Center a scalable stage */
     .viewport {
       position: fixed;
       inset: 0;
@@ -38,21 +38,25 @@
       place-items: center;
     }
 
-    #stage {
-      position: relative;
-      width: var(--w);
-      height: var(--h);
-      border-radius: var(--radius);
-      overflow: hidden;
-      -webkit-app-region: drag; /* draggable unless overridden */
+    /* This wrapper scales the 1920x1080 stage to fit any window */
+    #scale-wrap {
+      transform-origin: top left;
+      will-change: transform;
     }
 
-    /* 1:1 pixel background for a 1920x1080 asset */
+    #stage {
+      width: calc(var(--design-w) * 1px);
+      height: calc(var(--design-h) * 1px);
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
     .background-wrapper {
       position: absolute;
       inset: 0;
       background: url('./img/background.png') no-repeat center center;
-      background-size: 1920px 1080px; /* key: exact pixel sizing */
+      background-size: 100% 100%; /* always match stage exactly */
       z-index: 1;
     }
 
@@ -62,7 +66,7 @@
       z-index: 2;
     }
 
-    /* Interactive elements must be no-drag */
+    /* interactive areas */
     button, select, input, .play-button, .side-buttons, .side-button, .mini-button, .paypal-donate {
       -webkit-app-region: no-drag;
       cursor: pointer;
@@ -84,6 +88,7 @@
       align-items: center;
       justify-content: center;
       font-size: 24px;
+      color: #fff;
       transition: transform 0.2s, border-color 0.2s;
     }
 
@@ -119,8 +124,6 @@
       color: var(--green);
       transform: translateY(-2px);
     }
-
-    .side-button:active { transform: translateY(0); }
 
     .button-group {
       display: flex;
@@ -171,10 +174,7 @@
       box-shadow: 0 5px 15px rgba(0, 80, 199, 0.3);
     }
 
-    .paypal-icon {
-      font-weight: bold;
-      font-size: 16px;
-    }
+    .paypal-icon { font-weight: bold; font-size: 16px; }
 
     .progress-container {
       position: absolute;
@@ -220,6 +220,8 @@
       color: white;
       z-index: 5;
       transition: background 0.2s;
+      -webkit-app-region: no-drag;
+      cursor: pointer;
     }
 
     .close-button:hover { background: rgba(255,0,0,.9); }
@@ -235,7 +237,7 @@
       overflow-y: auto;
     }
 
-    /* Modal overlay */
+    /* modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -288,6 +290,7 @@
       font-weight: bold;
       transition: all 0.2s;
       -webkit-app-region: no-drag;
+      cursor: pointer;
     }
 
     .settings-close:hover {
@@ -301,7 +304,6 @@
       background: rgba(0,0,0,0.3);
       border-radius: 8px;
       border: 1px solid rgba(102,102,102,0.3);
-      -webkit-app-region: no-drag;
     }
 
     .setting-label {
@@ -322,6 +324,7 @@
       font-size: 14px;
       transition: all 0.2s;
       -webkit-app-region: no-drag;
+      cursor: pointer;
     }
 
     .setting-select:focus {
@@ -335,110 +338,126 @@
       width: 18px;
       height: 18px;
       vertical-align: middle;
-      -webkit-app-region: no-drag;
+      accent-color: var(--green);
     }
 
-    .setting-checkbox:checked { accent-color: var(--green); }
-
-    .checkbox-label {
-      vertical-align: middle;
-      font-size: 14px;
-      -webkit-app-region: no-drag;
-    }
+    .checkbox-label { font-size: 14px; }
   </style>
 </head>
 
 <body>
   <div class="viewport">
-    <div id="stage">
-      <div class="background-wrapper"></div>
+    <div id="scale-wrap">
+      <div id="stage">
+        <div class="background-wrapper"></div>
 
-      <!-- Settings Modal -->
-      <div class="modal-overlay" id="modal-overlay"></div>
-      <div class="settings-modal" id="settings-modal">
-        <div class="settings-header">
-          <div class="settings-title">SETTINGS</div>
-          <button class="settings-close" id="settings-close">×</button>
+        <!-- Settings Modal -->
+        <div class="modal-overlay" id="modal-overlay"></div>
+        <div class="settings-modal" id="settings-modal">
+          <div class="settings-header">
+            <div class="settings-title">SETTINGS</div>
+            <button class="settings-close" id="settings-close">×</button>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-label">Scan Mode</label>
+            <select class="setting-select" id="scan-mode-select">
+              <option value="quick">Quick Scan</option>
+              <option value="full">Full Scan</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox">
+              Auto-launch after scan
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input type="checkbox" class="setting-checkbox" id="auto-update-checkbox">
+              Auto-update launcher
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox">
+              Minimize to system tray
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-label">Connection Timeout (seconds)</label>
+            <input type="number" class="setting-select" id="timeout-input" min="10" max="120" value="30">
+          </div>
+
+          <button class="side-button" id="save-settings" style="margin-top: 20px; width: 100%;">SAVE SETTINGS</button>
         </div>
 
-        <div class="setting-item">
-          <label class="setting-label">Scan Mode</label>
-          <select class="setting-select" id="scan-mode-select">
-            <option value="quick">Quick Scan</option>
-            <option value="full">Full Scan</option>
-          </select>
+        <div class="main-content">
+          <button class="close-button" id="close-button">×</button>
+          <div class="play-button" id="play-button">PLAY</div>
+
+          <div class="side-buttons">
+            <button class="side-button" id="quick-scan">QUICK SCAN</button>
+            <button class="side-button" id="full-scan">FULL SCAN (RECHECK ALL)</button>
+            <button class="side-button" id="install-location">INSTALL LOCATION</button>
+            <button class="side-button" id="settings-button">SETTINGS</button>
+
+            <div id="current-directory"></div>
+
+            <div class="button-group">
+              <button class="mini-button" id="pause-button">PAUSE SCAN</button>
+              <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
+              <button class="mini-button" id="view-logs">VIEW LOGS</button>
+
+              <button class="paypal-donate" id="donate-button">
+                <span class="paypal-icon">PayPal</span>
+                <span>DONATE</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div id="total-progress" class="progress-fill"></div>
+            </div>
+            <div id="total-status" class="status-text">0/0 files</div>
+
+            <div class="progress-bar">
+              <div id="file-progress" class="progress-fill"></div>
+            </div>
+
+            <div id="status" class="status-text">Ready</div>
+            <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
+          </div>
         </div>
 
-        <div class="setting-item">
-          <label class="checkbox-label">
-            <input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox">
-            Auto-launch after scan
-          </label>
-        </div>
+        <script>
+          // Scale the 1920x1080 stage to fit any window while preserving aspect ratio.
+          function applyScale() {
+            const designW = 1920;
+            const designH = 1080;
 
-        <div class="setting-item">
-          <label class="checkbox-label">
-            <input type="checkbox" class="setting-checkbox" id="auto-update-checkbox">
-            Auto-update launcher
-          </label>
-        </div>
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
 
-        <div class="setting-item">
-          <label class="checkbox-label">
-            <input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox">
-            Minimize to system tray
-          </label>
-        </div>
+            const scale = Math.min(vw / designW, vh / designH);
 
-        <div class="setting-item">
-          <label class="setting-label">Connection Timeout (seconds)</label>
-          <input type="number" class="setting-select" id="timeout-input" min="10" max="120" value="30">
-        </div>
+            const wrap = document.getElementById('scale-wrap');
+            wrap.style.transform = `scale(${scale})`;
+            // Centered by .viewport grid, but when scaling, the element's
+            // "visual" size shrinks; this is fine.
+          }
 
-        <button class="side-button" id="save-settings" style="margin-top: 20px; width: 100%;">SAVE SETTINGS</button>
+          window.addEventListener('resize', applyScale);
+          applyScale();
+        </script>
+
+        <script src="renderer.js"></script>
       </div>
-
-      <div class="main-content">
-        <button class="close-button" id="close-button">×</button>
-
-        <div class="play-button" id="play-button">PLAY</div>
-
-        <div class="side-buttons">
-          <button class="side-button" id="quick-scan">QUICK SCAN</button>
-          <button class="side-button" id="full-scan">FULL SCAN (RECHECK ALL)</button>
-          <button class="side-button" id="install-location">INSTALL LOCATION</button>
-          <button class="side-button" id="settings-button">SETTINGS</button>
-
-          <div id="current-directory"></div>
-
-          <div class="button-group">
-            <button class="mini-button" id="pause-button">PAUSE SCAN</button>
-            <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
-            <button class="mini-button" id="view-logs">VIEW LOGS</button>
-
-            <button class="paypal-donate" id="donate-button">
-              <span class="paypal-icon">PayPal</span>
-              <span>DONATE</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="progress-container">
-          <div class="progress-bar">
-            <div id="total-progress" class="progress-fill"></div>
-          </div>
-          <div id="total-status" class="status-text">0/0 files</div>
-
-          <div class="progress-bar">
-            <div id="file-progress" class="progress-fill"></div>
-          </div>
-
-          <div id="status" class="status-text">Ready</div>
-          <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
-        </div>
-      </div>
-
-      <script src="renderer.js"></script>
     </div>
   </div>
 </body>
