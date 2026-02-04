@@ -1,4 +1,5 @@
-// main.js - SWG Returns Launcher (1920x1080 + DPI/Zoom lock + sane sizing)
+// main.js - SWG Returns Launcher
+// 1920x1080 design, DPI/Zoom lock, sane sizing, F11 fullscreen toggle, window control IPC
 
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const path = require('path');
@@ -15,6 +16,11 @@ let mainWindow;
 // Keep ONE source of truth for your patch base
 const BASE_URL = 'http://144.217.255.58/tre/';
 
+function toggleFullscreen(win) {
+  if (!win || win.isDestroyed()) return;
+  win.setFullScreen(!win.isFullScreen());
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1920,
@@ -24,10 +30,11 @@ function createWindow() {
     frame: false,
     transparent: true,
 
-    // Allow resize (important for smaller screens), but enforce minimum
+    // Allow resize for smaller screens; enforce minimum so it never becomes portrait-tiny
     resizable: true,
     minimizable: true,
     maximizable: true,
+    fullscreenable: true,
 
     backgroundColor: '#00000000',
     hasShadow: false,
@@ -38,16 +45,13 @@ function createWindow() {
       enableRemoteModule: false
     },
 
-    // Only show after we force correct size
     show: false
   });
 
-  // Minimum usable size so it never becomes "phone portrait" tiny
   mainWindow.setMinimumSize(1280, 720);
-
   mainWindow.loadFile('index.html');
 
-  // ---- Hard lock zoom to 100% and block zoom shortcuts ----
+  // ---- Hard lock zoom to 100% ----
   mainWindow.webContents.on('did-finish-load', async () => {
     try {
       await mainWindow.webContents.setZoomFactor(1);
@@ -55,21 +59,32 @@ function createWindow() {
     } catch (_) {}
   });
 
+  // ---- Hotkeys (F11) + block Ctrl zoom ----
   mainWindow.webContents.on('before-input-event', (event, input) => {
+    // F11 fullscreen toggle (borderless fullscreen since frame:false)
+    if (input.type === 'keyDown' && input.key === 'F11') {
+      event.preventDefault();
+      toggleFullscreen(mainWindow);
+      return;
+    }
+
+    // Block Ctrl zoom
     if (input.control && (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0')) {
       event.preventDefault();
+      return;
     }
   });
 
-  // Force a sane starting size every time (and fit on smaller displays)
+  // Force a sane starting size every time (fit on smaller displays)
   mainWindow.once('ready-to-show', () => {
     try {
       const display = screen.getPrimaryDisplay();
       const work = display.workAreaSize;
 
-      const target = (work.width >= 1920 && work.height >= 1080)
-        ? { w: 1920, h: 1080 }
-        : { w: 1280, h: 720 };
+      const target =
+        (work.width >= 1920 && work.height >= 1080)
+          ? { w: 1920, h: 1080 }
+          : { w: 1280, h: 720 };
 
       mainWindow.setContentSize(target.w, target.h);
       mainWindow.center();
@@ -81,14 +96,46 @@ function createWindow() {
         mainWindow.setContentSize(1280, 720);
         mainWindow.center();
       }
-    } catch (e) {
-      // If something goes wrong, at least show the window
+    } catch (_) {
       mainWindow.show();
     }
   });
 
-  // mainWindow.webContents.openDevTools();
+  // Optional: log fullscreen changes
+  mainWindow.on('enter-full-screen', () => console.log('Entered fullscreen'));
+  mainWindow.on('leave-full-screen', () => console.log('Left fullscreen'));
 }
+
+// ------------------------------
+// Window Controls via IPC
+// ------------------------------
+ipcMain.handle('window:minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
+
+ipcMain.handle('window:maximizeToggle', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+
+ipcMain.handle('window:close', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+
+ipcMain.handle('window:toggleFullscreen', () => {
+  toggleFullscreen(mainWindow);
+});
+
+ipcMain.handle('window:isMaximized', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  return mainWindow.isMaximized();
+});
+
+ipcMain.handle('window:isFullscreen', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  return mainWindow.isFullScreen();
+});
 
 // ------------------------------
 // Load required files from server
@@ -193,7 +240,6 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
     console.log(`Downloading: ${url} to ${destination}`);
 
     const req = http.get(url, (response) => {
-      // Handle redirects
       if (response.statusCode === 301 || response.statusCode === 302) {
         const redirectUrl = response.headers.location;
         if (!redirectUrl) {
@@ -231,8 +277,6 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
 
       file.on('finish', () => {
         file.close();
-        const elapsedTime = (Date.now() - startTime) / 1000;
-        console.log(`Download completed in ${elapsedTime.toFixed(2)}s: ${destination}`);
 
         if (expectedMd5) {
           const hash = crypto.createHash('md5');
@@ -241,7 +285,6 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, s
           readStream.on('data', (data) => hash.update(data));
           readStream.on('end', () => {
             const downloadedMd5 = hash.digest('hex');
-
             if (downloadedMd5 !== expectedMd5) {
               try { fs.unlinkSync(destination); } catch (_) {}
               reject(new Error(`MD5 mismatch: expected ${expectedMd5}, got ${downloadedMd5}`));
@@ -319,8 +362,6 @@ ipcMain.handle('launch-game', async (event, exePath) => {
     }
 
     try {
-      console.log(`Launching game: ${exePath}`);
-
       const exeDir = path.dirname(exePath);
       const exeName = path.basename(exePath);
       const { spawn } = require('child_process');
@@ -344,7 +385,6 @@ ipcMain.handle('launch-game', async (event, exePath) => {
         reject(new Error('Failed to launch process'));
       }
     } catch (error) {
-      console.error('Launch error:', error);
       reject(new Error(`Failed to launch game: ${error.message}`));
     }
   });
@@ -364,22 +404,18 @@ ipcMain.handle('save-settings', (event, settings) => {
 
     const mergedSettings = { ...existingSettings, ...settings };
     fs.writeFileSync(settingsPath, JSON.stringify(mergedSettings, null, 2));
-    console.log('Settings saved:', mergedSettings);
     return { success: true };
   } catch (error) {
-    console.error('Error saving settings:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('get-settings', () => {
   const settingsPath = getSettingsPath();
-
   if (fs.existsSync(settingsPath)) {
     try {
       return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    } catch (error) {
-      console.error('Error reading settings:', error);
+    } catch (_) {
       return {};
     }
   }
@@ -393,7 +429,6 @@ ipcMain.handle('save-install-dir', (event, dir) => {
     : {};
   settings.installDir = dir;
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  console.log(`Saved install directory: ${dir}`);
 });
 
 ipcMain.handle('get-install-dir', () => {
@@ -402,8 +437,7 @@ ipcMain.handle('get-install-dir', () => {
     try {
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
       return settings.installDir || null;
-    } catch (error) {
-      console.error('Error reading install directory:', error);
+    } catch (_) {
       return null;
     }
   }
@@ -417,7 +451,6 @@ ipcMain.handle('save-scan-mode', (event, mode) => {
     : {};
   settings.scanMode = mode;
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  console.log(`Saved scan mode: ${mode}`);
 });
 
 ipcMain.handle('get-scan-mode', () => {
@@ -426,8 +459,7 @@ ipcMain.handle('get-scan-mode', () => {
     try {
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
       return settings.scanMode || 'quick';
-    } catch (error) {
-      console.error('Error reading scan mode:', error);
+    } catch (_) {
       return 'quick';
     }
   }
@@ -450,13 +482,11 @@ ipcMain.handle('clear-cache', async () => {
       if (fs.existsSync(cachePath)) {
         fs.rmSync(cachePath, { recursive: true, force: true });
         cleared = true;
-        console.log(`Cleared cache: ${cachePath}`);
       }
     }
 
     return { success: true, message: cleared ? 'Cache cleared successfully' : 'Cache was already empty' };
   } catch (error) {
-    console.error('Error clearing cache:', error);
     return { success: false, error: `Failed to clear cache: ${error.message}` };
   }
 });
@@ -471,14 +501,12 @@ ipcMain.handle('open-logs', async () => {
 
     const logFile = path.join(logPath, 'launcher.log');
     if (!fs.existsSync(logFile)) {
-      const initialLog = `SWG Returns Launcher Log\nCreated: ${new Date().toISOString()}\n\n`;
-      fs.writeFileSync(logFile, initialLog);
+      fs.writeFileSync(logFile, `SWG Returns Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
     }
 
     shell.openPath(logFile);
-    return { success: true, message: 'Logs opened' };
+    return { success: true };
   } catch (error) {
-    console.error('Error opening logs:', error);
     return { success: false, error: `Failed to open logs: ${error.message}` };
   }
 });
@@ -505,23 +533,17 @@ app.on('activate', () => {
 // Handle errors
 // ------------------------------
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
   try {
     const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
     const timestamp = new Date().toISOString();
     fs.appendFileSync(logPath, `${timestamp} - Uncaught Exception: ${error.stack || error.message}\n`);
-  } catch (logError) {
-    console.error('Failed to write error log:', logError);
-  }
+  } catch (_) {}
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
   try {
     const logPath = path.join(app.getPath('userData'), 'logs', 'error.log');
     const timestamp = new Date().toISOString();
     fs.appendFileSync(logPath, `${timestamp} - Unhandled Rejection: ${reason}\n`);
-  } catch (logError) {
-    console.error('Failed to write error log:', logError);
-  }
+  } catch (_) {}
 });
