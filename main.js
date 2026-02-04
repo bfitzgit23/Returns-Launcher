@@ -6,7 +6,7 @@ const crypto = require('crypto');
 
 let mainWindow;
 
-const BASE_URL = 'http://15.204.254.253/tre/';
+const BASE_URL = 'http://144.217.255.58/tre/';
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -493,4 +493,5 @@ process.on('unhandledRejection', (reason, promise) => {
         console.error('Failed to write error log:', logError);
     }
 });
+
 
