@@ -1,9 +1,10 @@
 {
   "address": "144.217.255.58",
   "port": "44453",
-  "manifestUrl": "http://144.217.255.58/tre/required-files.json",
-  "baseUrl": "http://144.217.255.58/tre/"
+  "manifestUrl": "https://returnsswg.com/tre/required-files.json",
+  "baseUrl": "https://returnsswg.com/tre/"
 }
+
 
 
 
