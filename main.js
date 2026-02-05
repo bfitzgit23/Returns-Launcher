@@ -14,7 +14,7 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 
 // Keep ONE source of truth for your patch base
-const BASE_URL = 'https://returnsswg.com/tre/';
+const BASE_URL = 'http://15.204.254.253/tre/';
 
 function toggleFullscreen(win) {
   if (!win || win.isDestroyed()) return;
@@ -547,6 +547,7 @@ process.on('unhandledRejection', (reason) => {
     fs.appendFileSync(logPath, `${timestamp} - Unhandled Rejection: ${reason}\n`);
   } catch (_) {}
 });
+
 
 
 
